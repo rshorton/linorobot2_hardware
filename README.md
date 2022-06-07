@@ -1,5 +1,7 @@
 ## This is a fork of linorobot2_hardware for the Elsabot robot
 
+![Elsabot](docs/elsabot_4wd.png)
+
 ## Installation
 All software mentioned in this guide must be installed on the robot computer.
 
