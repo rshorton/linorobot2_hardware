@@ -25,7 +25,6 @@
  * THE SOFTWARE.
  */
 
-
 #ifndef Encoder_h_
 #define Encoder_h_
 
@@ -71,13 +70,22 @@ typedef struct {
 	IO_REG_TYPE            pin2_bitmask;
 	uint8_t                state;
 	int32_t                position;
+#if defined(ELSABOT)
+	bool				   invert;
+#endif	
 } Encoder_internal_state_t;
 
 class Encoder
 {
 public:
 	Encoder(uint8_t pin1, uint8_t pin2, int counts_per_rev, bool invert=false) {
+#if defined(ELSABOT)
+		encoder.invert = invert;
+		pinMode(pin1, INPUT);
+		pinMode(pin2, INPUT);
+#else
 		uint8_t temp_pin = pin1;
+
 		if(invert)
 		{
 			pin1 = pin2;
@@ -92,6 +100,7 @@ public:
 		pinMode(pin2, INPUT);
 		digitalWrite(pin2, HIGH);
 		#endif
+#endif
 
 		counts_per_rev_ = counts_per_rev;	
 
@@ -325,6 +334,14 @@ public:
 		"L%=end:"				"\n"
 		: : "x" (arg) : "r22", "r23", "r24", "r25", "r30", "r31");
 #else
+#if defined(ELSABOT)
+		uint8_t p2val = DIRECT_PIN_READ(arg->pin2_register, arg->pin2_bitmask);
+		if (p2val == (arg->invert ? 1: 0)) {
+			arg->position--;
+		} else {
+			arg->position++;
+		}
+#else
 		uint8_t p1val = DIRECT_PIN_READ(arg->pin1_register, arg->pin1_bitmask);
 		uint8_t p2val = DIRECT_PIN_READ(arg->pin2_register, arg->pin2_bitmask);
 		uint8_t state = arg->state & 3;
@@ -345,6 +362,7 @@ public:
 				arg->position -= 2;
 				return;
 		}
+#endif		
 #endif
 	}
 private:

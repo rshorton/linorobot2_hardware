@@ -74,6 +74,7 @@ class Generic1: public MotorInterface
     private:
         int in_pin_;
         int pwm_pin_;
+        int current_pin_;
 
     protected:
         void forward(int pwm) override
@@ -89,10 +90,11 @@ class Generic1: public MotorInterface
         }
 
     public:
-        Generic1(float pwm_frequency, int pwm_bits, bool invert, int pwm_pin, int in_pin, int unused=-1): 
+        Generic1(float pwm_frequency, int pwm_bits, bool invert, int pwm_pin, int in_pin, int unused=-1, int current_pin= -1): 
             MotorInterface(invert),
             in_pin_(in_pin),
-            pwm_pin_(pwm_pin)
+            pwm_pin_(pwm_pin),
+            current_pin_(current_pin)
         {
             pinMode(in_pin_, OUTPUT);
             pinMode(pwm_pin_, OUTPUT);
@@ -111,6 +113,16 @@ class Generic1: public MotorInterface
         {
             analogWrite(pwm_pin_, 0);
         }
+
+        float readCurrent() override
+        {
+            if (current_pin_ == -1) {
+                return 0.0;
+            }
+            // ACS712-based current sensor (5A range)
+            return ((float)analogRead(current_pin_)/1023.0*3.3 - 2.5)/0.185;
+        }
+
 };
 
 class BTS7960: public MotorInterface

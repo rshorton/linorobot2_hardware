@@ -24,6 +24,13 @@ class PID
         double compute(float setpoint, float measured_value);
         void updateConstants(float kp, float ki, float kd);
 
+        // For diagnostics
+        double getError() const { return prev_error_; }
+        double getIntegral() const { return integral_; }
+        double getDerivative() const { return derivative_; }
+        double getOutputRaw() const { return pid_raw_; }
+        double getOutputConstrained() const { return pid_constrained_; }
+
     private:
         float min_val_;
         float max_val_;
@@ -33,6 +40,8 @@ class PID
         double integral_;
         double derivative_;
         double prev_error_;
+        double pid_raw_;
+        double pid_constrained_;
 };
 
 #endif

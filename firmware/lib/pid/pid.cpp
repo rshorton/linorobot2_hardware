@@ -27,17 +27,28 @@ PID::PID(float min_val, float max_val, float kp, float ki, float kd):
 double PID::compute(float setpoint, float measured_value)
 {
     double error;
-    double pid;
+
+#if defined(ELSABOT)
+	// Force PWM output to zero when setpoint is zero
+    if (setpoint == 0.0) {
+        integral_ = 0.0;
+        derivative_ = 0.0;
+        prev_error_ = 0.0;
+        pid_constrained_ = 0.0;
+        return 0.0;
+    }
+#endif
 
     //setpoint is constrained between min and max to prevent pid from having too much error
     error = setpoint - measured_value;
     integral_ += error;
     derivative_ = error - prev_error_;
 
-    pid = (kp_ * error) + (ki_ * integral_) + (kd_ * derivative_);
+    pid_raw_ = (kp_ * error) + (ki_ * integral_) + (kd_ * derivative_);
     prev_error_ = error;
 
-    return constrain(pid, min_val_, max_val_);
+    pid_constrained_ = constrain(pid_raw_, min_val_, max_val_);
+    return pid_constrained_;
 }
 
 void PID::updateConstants(float kp, float ki, float kd)

@@ -34,6 +34,9 @@
 #define ENCODER_USE_INTERRUPTS
 #define ENCODER_OPTIMIZE_INTERRUPTS
 #include "encoder.h"
+#include "diagnostics.h"
+
+#undef PUBLISH_MOTOR_DIAGS
 
 #define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){rclErrorLoop();}}
 #define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){}}
@@ -57,15 +60,17 @@ unsigned long prev_cmd_time = 0;
 unsigned long prev_odom_update = 0;
 bool micro_ros_init_successful = false;
 
+Kinematics::rpm req_rpm;
+
 Encoder motor1_encoder(MOTOR1_ENCODER_A, MOTOR1_ENCODER_B, COUNTS_PER_REV1, MOTOR1_ENCODER_INV);
 Encoder motor2_encoder(MOTOR2_ENCODER_A, MOTOR2_ENCODER_B, COUNTS_PER_REV2, MOTOR2_ENCODER_INV);
 Encoder motor3_encoder(MOTOR3_ENCODER_A, MOTOR3_ENCODER_B, COUNTS_PER_REV3, MOTOR3_ENCODER_INV);
 Encoder motor4_encoder(MOTOR4_ENCODER_A, MOTOR4_ENCODER_B, COUNTS_PER_REV4, MOTOR4_ENCODER_INV);
 
-Motor motor1_controller(PWM_FREQUENCY, PWM_BITS, MOTOR1_INV, MOTOR1_PWM, MOTOR1_IN_A, MOTOR1_IN_B);
-Motor motor2_controller(PWM_FREQUENCY, PWM_BITS, MOTOR2_INV, MOTOR2_PWM, MOTOR2_IN_A, MOTOR2_IN_B);
-Motor motor3_controller(PWM_FREQUENCY, PWM_BITS, MOTOR3_INV, MOTOR3_PWM, MOTOR3_IN_A, MOTOR3_IN_B);
-Motor motor4_controller(PWM_FREQUENCY, PWM_BITS, MOTOR4_INV, MOTOR4_PWM, MOTOR4_IN_A, MOTOR4_IN_B);
+Motor motor1_controller(PWM_FREQUENCY, PWM_BITS, MOTOR1_INV, MOTOR1_PWM, MOTOR1_IN_A, MOTOR1_IN_B, MOTOR1_CURRENT);
+Motor motor2_controller(PWM_FREQUENCY, PWM_BITS, MOTOR2_INV, MOTOR2_PWM, MOTOR2_IN_A, MOTOR2_IN_B, MOTOR2_CURRENT);
+Motor motor3_controller(PWM_FREQUENCY, PWM_BITS, MOTOR3_INV, MOTOR3_PWM, MOTOR3_IN_A, MOTOR3_IN_B, MOTOR3_CURRENT);
+Motor motor4_controller(PWM_FREQUENCY, PWM_BITS, MOTOR4_INV, MOTOR4_PWM, MOTOR4_IN_A, MOTOR4_IN_B, MOTOR4_CURRENT);
 
 PID motor1_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
 PID motor2_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
@@ -84,6 +89,17 @@ Kinematics kinematics(
 
 Odometry odometry;
 IMU imu;
+
+
+float current_rpm1 = 0.0;
+float current_rpm2 = 0.0;
+float current_rpm3 = 0.0;
+float current_rpm4 = 0.0;
+
+MotorDiags motor1_diags;
+MotorDiags motor2_diags;
+MotorDiags motor3_diags;
+MotorDiags motor4_diags;
 
 void setup() 
 {
@@ -173,6 +189,15 @@ void createEntities()
         ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
         "imu/data"
     ));
+
+#if defined(PUBLISH_MOTOR_DIAGS)
+    // create diagnostics publisher
+    motor1_diags.create(node, 1);
+    motor2_diags.create(node, 2);
+    motor3_diags.create(node, 3);
+    motor4_diags.create(node, 4);
+#endif
+
     // create twist command subscriber
     RCCHECK(rclc_subscription_init_default( 
         &twist_subscriber, 
@@ -207,6 +232,13 @@ void createEntities()
 void destroyEntities()
 {
     digitalWrite(LED_PIN, LOW);
+
+#if defined(PUBLISH_MOTOR_DIAGS)
+    motor1_diags.destroy(node);
+    motor2_diags.destroy(node);
+    motor3_diags.destroy(node);
+    motor4_diags.destroy(node);
+#endif
 
     rcl_publisher_fini(&odom_publisher, &node);
     rcl_publisher_fini(&imu_publisher, &node);
@@ -243,17 +275,17 @@ void moveBase()
         digitalWrite(LED_PIN, HIGH);
     }
     // get the required rpm for each motor based on required velocities, and base used
-    Kinematics::rpm req_rpm = kinematics.getRPM(
+    req_rpm = kinematics.getRPM(
         twist_msg.linear.x, 
         twist_msg.linear.y, 
         twist_msg.angular.z
     );
 
     // get the current speed of each motor
-    float current_rpm1 = motor1_encoder.getRPM();
-    float current_rpm2 = motor2_encoder.getRPM();
-    float current_rpm3 = motor3_encoder.getRPM();
-    float current_rpm4 = motor4_encoder.getRPM();
+    current_rpm1 = motor1_encoder.getRPM();
+    current_rpm2 = motor2_encoder.getRPM();
+    current_rpm3 = motor3_encoder.getRPM();
+    current_rpm4 = motor4_encoder.getRPM();
 
     // the required rpm is capped at -/+ MAX_RPM to prevent the PID from having too much error
     // the PWM value sent to the motor driver is the calculated PID based on required RPM vs measured RPM
@@ -295,6 +327,13 @@ void publishData()
 
     RCSOFTCHECK(rcl_publish(&imu_publisher, &imu_msg, NULL));
     RCSOFTCHECK(rcl_publish(&odom_publisher, &odom_msg, NULL));
+
+#if defined(PUBLISH_MOTOR_DIAGS)
+    motor1_diags.publish(req_rpm.motor1, current_rpm1, motor1_controller.getCurrent(), motor1_pid);
+    motor2_diags.publish(req_rpm.motor2, current_rpm2, motor2_controller.getCurrent(), motor2_pid);
+    motor3_diags.publish(req_rpm.motor3, current_rpm3, motor3_controller.getCurrent(), motor3_pid);
+    motor4_diags.publish(req_rpm.motor4, current_rpm4, motor4_controller.getCurrent(), motor4_pid);
+#endif
 }
 
 void syncTime()

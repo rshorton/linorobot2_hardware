@@ -1,0 +1,9 @@
+{
+  "name": {
+    "rmw_microxrcedds":{
+      "cmake-args":[
+        "-DRMW_UXRCE_MAX_PUBLISHERS=20"
+      ]
+    }
+  }
+}

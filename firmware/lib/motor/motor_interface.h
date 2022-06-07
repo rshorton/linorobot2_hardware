@@ -18,13 +18,15 @@
 class MotorInterface
 {
     bool invert_;
+    float ave_current_;
     protected:
         virtual void forward(int pwm) = 0;
         virtual void reverse(int pwm) = 0;
 
     public:
         MotorInterface(int invert):
-            invert_(invert)
+            invert_(invert),
+            ave_current_(0.0)
         {
         }
 
@@ -40,6 +42,15 @@ class MotorInterface
                 reverse(pwm);
             else
                 brake();
+        }
+
+        // Derived class implements method to read the motor input current
+        virtual float readCurrent() { return 0.0; }
+
+        virtual float getCurrent()
+        {
+            ave_current_ = ave_current_*0.9 + 0.1*readCurrent();
+            return ave_current_;
         }
 };
 
