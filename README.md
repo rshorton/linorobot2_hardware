@@ -1,3 +1,5 @@
+## This is a fork of linorobot2_hardware for the Elsabot robot
+
 ## Installation
 All software mentioned in this guide must be installed on the robot computer.
 
