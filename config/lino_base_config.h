@@ -113,22 +113,22 @@ ROBOT ORIENTATION
   #define MOTOR1_PWM 1   //Pin no 21 is not a PWM pin on Teensy 4.x, you can use pin no 1 instead.
   #define MOTOR1_IN_A 20
   #define MOTOR1_IN_B -1 //DON'T TOUCH THIS! This is just a placeholder
-  #define MOTOR1_CURRENT A10
+  #define MOTOR1_CURRENT A12
 
   #define MOTOR2_PWM 5
   #define MOTOR2_IN_A 6
   #define MOTOR2_IN_B -1 //DON'T TOUCH THIS! This is just a placeholder
-  #define MOTOR2_CURRENT A11
+  #define MOTOR2_CURRENT A13
 
   #define MOTOR3_PWM 22
   #define MOTOR3_IN_A 23
   #define MOTOR3_IN_B -1 //DON'T TOUCH THIS! This is just a placeholder
-  #define MOTOR3_CURRENT A12
+  #define MOTOR3_CURRENT A11
 
   #define MOTOR4_PWM 4
   #define MOTOR4_IN_A 3
   #define MOTOR4_IN_B -1 //DON'T TOUCH THIS! This is just a placeholder
-  #define MOTOR4_CURRENT A13
+  #define MOTOR4_CURRENT A10
 
   #define PWM_MAX pow(2, PWM_BITS) - 1
   #define PWM_MIN -PWM_MAX
@@ -175,5 +175,15 @@ ROBOT ORIENTATION
   #define PWM_MAX 400
   #define PWM_MIN -PWM_MAX
 #endif
+
+// Motor power relay control related
+
+// Active high output is connected thru
+// emergency stop switch and wireless switch
+// to the control input of the relay.
+#define MOTOR_RELAY_PWR_OUT 15
+// The control input of the relay is monitored
+// using this input.
+#define MOTOR_RELAY_PWR_IN 16
 
 #endif

@@ -36,7 +36,7 @@
 #include "encoder.h"
 #include "diagnostics.h"
 
-#undef PUBLISH_MOTOR_DIAGS
+#define PUBLISH_MOTOR_DIAGS
 
 #define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){rclErrorLoop();}}
 #define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){}}
@@ -101,9 +101,15 @@ MotorDiags motor2_diags;
 MotorDiags motor3_diags;
 MotorDiags motor4_diags;
 
+bool pwr_relay_on = false;
+
 void setup() 
 {
     pinMode(LED_PIN, OUTPUT);
+
+    pinMode(MOTOR_RELAY_PWR_OUT, OUTPUT);
+    pinMode(MOTOR_RELAY_PWR_IN, INPUT);
+
 
     bool imu_ok = imu.init();
     if(!imu_ok)
@@ -149,6 +155,17 @@ void loop()
     {
         rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
     }
+
+    // MOTOR_RELAY_PWR_IN reads input to motor power relay.
+    // Hi => relay On => power applied to motors
+    bool motor_pwr_en = digitalRead(MOTOR_RELAY_PWR_IN);
+    // If motor power off, ignore encoder inputs.
+    // This avoids glitches on the encoder inputs which cause
+    // localization to be lost.
+    motor1_encoder.enable(motor_pwr_en);
+    motor2_encoder.enable(motor_pwr_en);
+    motor3_encoder.enable(motor_pwr_en);
+    motor4_encoder.enable(motor_pwr_en);
 }
 
 void controlCallback(rcl_timer_t * timer, int64_t last_call_time) 
@@ -294,6 +311,18 @@ void moveBase()
     motor3_controller.spin(motor3_pid.compute(req_rpm.motor3, current_rpm3));
     motor4_controller.spin(motor4_pid.compute(req_rpm.motor4, current_rpm4));
 
+    // If power relay not on, then wait until we actually want to move
+    // before turning on motor power
+    if (!pwr_relay_on &&
+        (motor1_pid.getOutputConstrained() != 0 ||
+         motor2_pid.getOutputConstrained() != 0 ||
+         motor3_pid.getOutputConstrained() != 0 ||
+         motor4_pid.getOutputConstrained() != 0)) {
+        digitalWrite(MOTOR_RELAY_PWR_OUT, HIGH);
+        pwr_relay_on = true;
+    }
+
+
     Kinematics::velocities current_vel = kinematics.getVelocities(
         current_rpm1, 
         current_rpm2, 
@@ -329,10 +358,10 @@ void publishData()
     RCSOFTCHECK(rcl_publish(&odom_publisher, &odom_msg, NULL));
 
 #if defined(PUBLISH_MOTOR_DIAGS)
-    motor1_diags.publish(req_rpm.motor1, current_rpm1, motor1_controller.getCurrent(), motor1_pid);
-    motor2_diags.publish(req_rpm.motor2, current_rpm2, motor2_controller.getCurrent(), motor2_pid);
-    motor3_diags.publish(req_rpm.motor3, current_rpm3, motor3_controller.getCurrent(), motor3_pid);
-    motor4_diags.publish(req_rpm.motor4, current_rpm4, motor4_controller.getCurrent(), motor4_pid);
+    motor1_diags.publish(time_stamp, req_rpm.motor1, current_rpm1, motor1_controller.getCurrent(), motor1_pid);
+    motor2_diags.publish(time_stamp, req_rpm.motor2, current_rpm2, motor2_controller.getCurrent(), motor2_pid);
+    motor3_diags.publish(time_stamp, req_rpm.motor3, current_rpm3, motor3_controller.getCurrent(), motor3_pid);
+    motor4_diags.publish(time_stamp, req_rpm.motor4, current_rpm4, motor4_controller.getCurrent(), motor4_pid);
 #endif
 }
 

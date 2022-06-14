@@ -57,8 +57,6 @@
 #define ENCODER_ISR_ATTR
 #endif
 
-
-
 // All the data needed by interrupts is consolidated into this ugly struct
 // to facilitate assembly language optimizing of the speed critical update.
 // The assembly code uses auto-incrementing addressing modes, so the struct
@@ -72,6 +70,7 @@ typedef struct {
 	int32_t                position;
 #if defined(ELSABOT)
 	bool				   invert;
+	bool				   enable;
 #endif	
 } Encoder_internal_state_t;
 
@@ -83,6 +82,7 @@ public:
 		encoder.invert = invert;
 		pinMode(pin1, INPUT);
 		pinMode(pin2, INPUT);
+		encoder.enable = true;
 #else
 		uint8_t temp_pin = pin1;
 
@@ -186,6 +186,10 @@ public:
 		return ((delta_ticks / counts_per_rev_) / dtm);
 	}
 
+#if defined(ELSABOT)
+	inline void enable(bool enable) { encoder.enable = enable; };
+#endif	
+
 private:
 	int counts_per_rev_;
 	unsigned long prev_update_time_;
@@ -194,6 +198,7 @@ private:
 #ifdef ENCODER_USE_INTERRUPTS
 	uint8_t interrupts_in_use;
 #endif
+
 public:
 	static Encoder_internal_state_t * interruptArgs[ENCODER_ARGLIST_SIZE];
 
@@ -335,12 +340,17 @@ public:
 		: : "x" (arg) : "r22", "r23", "r24", "r25", "r30", "r31");
 #else
 #if defined(ELSABOT)
-		uint8_t p2val = DIRECT_PIN_READ(arg->pin2_register, arg->pin2_bitmask);
-		if (p2val == (arg->invert ? 1: 0)) {
-			arg->position--;
-		} else {
-			arg->position++;
-		}
+		// Elsabot uses motors with a single encoder pulse line.
+		// The desired direction output is used here to determine
+		// direction.
+		if (arg->enable) {
+			uint8_t p2val = DIRECT_PIN_READ(arg->pin2_register, arg->pin2_bitmask);
+			if (p2val == (arg->invert ? 1: 0)) {
+				arg->position--;
+			} else {
+				arg->position++;
+			}
+		}			
 #else
 		uint8_t p1val = DIRECT_PIN_READ(arg->pin1_register, arg->pin1_bitmask);
 		uint8_t p2val = DIRECT_PIN_READ(arg->pin2_register, arg->pin2_bitmask);

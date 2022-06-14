@@ -75,18 +75,23 @@ class Generic1: public MotorInterface
         int in_pin_;
         int pwm_pin_;
         int current_pin_;
+        float voltage_ref;
+        int last_pwm;
+        float current_ave;
 
     protected:
         void forward(int pwm) override
         {
             digitalWrite(in_pin_, HIGH);
             analogWrite(pwm_pin_, abs(pwm));
+            last_pwm = pwm;
         }
 
         void reverse(int pwm) override
         {
             digitalWrite(in_pin_, LOW);
             analogWrite(pwm_pin_, abs(pwm));
+            last_pwm = pwm;
         }
 
     public:
@@ -94,7 +99,10 @@ class Generic1: public MotorInterface
             MotorInterface(invert),
             in_pin_(in_pin),
             pwm_pin_(pwm_pin),
-            current_pin_(current_pin)
+            current_pin_(current_pin),
+            voltage_ref(2.5),
+            last_pwm(0),
+            current_ave(0.0)
         {
             pinMode(in_pin_, OUTPUT);
             pinMode(pwm_pin_, OUTPUT);
@@ -119,8 +127,15 @@ class Generic1: public MotorInterface
             if (current_pin_ == -1) {
                 return 0.0;
             }
+            float v_in = (float)analogRead(current_pin_)/1023.0*3.3;
+
+            if (last_pwm == 0) {
+                voltage_ref = voltage_ref*0.95 + v_in*0.05;
+            }
             // ACS712-based current sensor (5A range)
-            return ((float)analogRead(current_pin_)/1023.0*3.3 - 2.5)/0.185;
+            float current = (voltage_ref - v_in)/0.185;
+            current_ave = current_ave*0.95 + current*0.05;
+            return current_ave;
         }
 
 };

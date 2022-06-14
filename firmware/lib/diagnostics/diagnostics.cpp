@@ -4,6 +4,7 @@
 #include <rclc/rclc.h>
 
 #include <std_msgs/msg/float32.h>
+#include <sensor_msgs/msg/illuminance.h>
 
 #include <micro_ros_utilities/type_utilities.h>
 #include <micro_ros_utilities/string_utilities.h>
@@ -13,6 +14,8 @@
 //Fix - The default config for micro ros only supports publishing 10 topics.
 // Attempts at changing the config to allow more didn't work.  Only those topics
 // below that were needed for debugging were enabled.
+
+#define ONLY_PUB_CURRENT
 
 MotorDiags::MotorDiags():
     inited_(false)
@@ -30,6 +33,15 @@ void MotorDiags::create(rcl_node_t &node, int index)
     String idx_str = String(index);
     String topic_base = String("motor_" + idx_str);
 
+#if defined(ONLY_PUB_CURRENT)
+    // See comment below regarding use of Illuminance sensor msg
+    rclc_publisher_init_default( 
+        &motor_current_publisher_, 
+        &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Illuminance),
+        String(topic_base + "/current").c_str()
+    );
+#else
     rclc_publisher_init_default( 
         &motor_req_rpm_publisher_, 
         &node,
@@ -85,7 +97,7 @@ void MotorDiags::create(rcl_node_t &node, int index)
         ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
         String(topic_base + "/pid_output").c_str()
     );
-
+#endif
     inited_ = true;
 }
 
@@ -96,22 +108,38 @@ void MotorDiags::destroy(rcl_node_t &node)
     }
     inited_ = false;
 
+#if defined(ONLY_PUB_CURRENT)
+    rcl_publisher_fini(&motor_current_publisher_, &node);
+#else
     rcl_publisher_fini(&motor_req_rpm_publisher_, &node);
     rcl_publisher_fini(&motor_cur_rpm_publisher_, &node);
-    rcl_publisher_fini(&motor_current_publisher_, &node);
     rcl_publisher_fini(&motor_pid_error_publisher_, &node);
     rcl_publisher_fini(&motor_pid_integral_publisher_, &node);
     rcl_publisher_fini(&motor_pid_derivative_publisher_, &node);
     rcl_publisher_fini(&motor_pid_output_raw_publisher_, &node);
     rcl_publisher_fini(&motor_pid_output_publisher_, &node);
+#endif    
 }
 
-void MotorDiags::publish(float rpm_req, float rpm_cur, float current, PID const &pid)
+void MotorDiags::publish(struct timespec time_stamp, float rpm_req, float rpm_cur, float current, PID const &pid)
 {
     if (!inited_) {
         return;
     }
 
+#if defined(ONLY_PUB_CURRENT)
+    // Hack - Using an existing message that has a header and double type
+    // so that current can be plotted using rqt.
+    // Fix - create custom message
+    sensor_msgs__msg__Illuminance msg;
+    msg.header.stamp.sec = time_stamp.tv_sec;
+    msg.header.stamp.nanosec = time_stamp.tv_nsec;
+    msg.header.frame_id = micro_ros_string_utilities_set(msg.header.frame_id, "none");
+
+    msg.illuminance = current;
+    msg.variance = 0.0;
+    rcl_publish(&motor_current_publisher_, &msg, NULL);
+#else
     std_msgs__msg__Float32 msg;
 
     msg.data = rpm_req;
@@ -137,5 +165,6 @@ void MotorDiags::publish(float rpm_req, float rpm_cur, float current, PID const 
 
     msg.data = pid.getOutputConstrained();
     rcl_publish(&motor_pid_output_publisher_, &msg, NULL);
+#endif
 }
 

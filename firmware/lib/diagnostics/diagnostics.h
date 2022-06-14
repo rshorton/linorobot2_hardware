@@ -16,7 +16,7 @@ class MotorDiags
         MotorDiags();
         void create(rcl_node_t &node, int index);
         void destroy(rcl_node_t &node);
-        void publish(float rpm_cur, float rpm_req, float current, PID const &pid);
+        void publish(struct timespec time_stamp, float rpm_cur, float rpm_req, float current, PID const &pid);
 
     private:
         bool inited_;
