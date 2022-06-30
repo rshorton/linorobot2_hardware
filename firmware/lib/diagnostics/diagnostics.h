@@ -7,6 +7,7 @@
 #include <stdio.h>
 
 #include <rcl/rcl.h>
+#include <elsabot_custom_messages/msg/motor_diag.h>
 
 #include "pid.h"
 
@@ -21,14 +22,8 @@ class MotorDiags
     private:
         bool inited_;
         int index_;
-        rcl_publisher_t motor_req_rpm_publisher_;
-        rcl_publisher_t motor_cur_rpm_publisher_;
-        rcl_publisher_t motor_current_publisher_;
-        rcl_publisher_t motor_pid_error_publisher_;
-        rcl_publisher_t motor_pid_integral_publisher_;
-        rcl_publisher_t motor_pid_derivative_publisher_;
-        rcl_publisher_t motor_pid_output_raw_publisher_;
-        rcl_publisher_t motor_pid_output_publisher_;
+        rcl_publisher_t motor_diag_publisher_;
+        elsabot_custom_messages__msg__MotorDiag motor_diag_msg_;
 };
 
 #endif

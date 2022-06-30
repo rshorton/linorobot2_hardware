@@ -24,6 +24,7 @@
 #include <sensor_msgs/msg/imu.h>
 #include <geometry_msgs/msg/twist.h>
 #include <geometry_msgs/msg/vector3.h>
+#include <std_msgs/msg/float32.h>
 
 #include "config.h"
 #include "motor.h"
@@ -35,15 +36,31 @@
 #define ENCODER_OPTIMIZE_INTERRUPTS
 #include "encoder.h"
 #include "diagnostics.h"
+#include "util.h"
 
 #define PUBLISH_MOTOR_DIAGS
+#define TUNE_PID_LOOP
 
-#define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){rclErrorLoop();}}
+#define ERR_BLINK_GENERAL   2
+#define ERR_BLINK_IMU       3
+
+#define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){rclErrorLoop(ERR_BLINK_GENERAL);}}
+#define RCCHECK_WITH_BLINK_CODE(blink_code, fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){rclErrorLoop(blink_code);}}
 #define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){}}
 
 rcl_publisher_t odom_publisher;
 rcl_publisher_t imu_publisher;
 rcl_subscription_t twist_subscriber;
+
+#if defined(TUNE_PID_LOOP)
+rcl_subscription_t pid_kp_subscriber;
+rcl_subscription_t pid_kd_subscriber;
+rcl_subscription_t pid_ki_subscriber;
+
+std_msgs__msg__Float32 pid_kp_msg;
+std_msgs__msg__Float32 pid_kd_msg;
+std_msgs__msg__Float32 pid_ki_msg;
+#endif
 
 nav_msgs__msg__Odometry odom_msg;
 sensor_msgs__msg__Imu imu_msg;
@@ -61,6 +78,7 @@ unsigned long prev_odom_update = 0;
 bool micro_ros_init_successful = false;
 
 Kinematics::rpm req_rpm;
+Kinematics::rpm last_rpm = {0.0, 0.0, 0.0, 0.0};
 
 Encoder motor1_encoder(MOTOR1_ENCODER_A, MOTOR1_ENCODER_B, COUNTS_PER_REV1, MOTOR1_ENCODER_INV);
 Encoder motor2_encoder(MOTOR2_ENCODER_A, MOTOR2_ENCODER_B, COUNTS_PER_REV2, MOTOR2_ENCODER_INV);
@@ -89,7 +107,6 @@ Kinematics kinematics(
 
 Odometry odometry;
 IMU imu;
-
 
 float current_rpm1 = 0.0;
 float current_rpm2 = 0.0;
@@ -155,17 +172,6 @@ void loop()
     {
         rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
     }
-
-    // MOTOR_RELAY_PWR_IN reads input to motor power relay.
-    // Hi => relay On => power applied to motors
-    bool motor_pwr_en = digitalRead(MOTOR_RELAY_PWR_IN);
-    // If motor power off, ignore encoder inputs.
-    // This avoids glitches on the encoder inputs which cause
-    // localization to be lost.
-    motor1_encoder.enable(motor_pwr_en);
-    motor2_encoder.enable(motor_pwr_en);
-    motor3_encoder.enable(motor_pwr_en);
-    motor4_encoder.enable(motor_pwr_en);
 }
 
 void controlCallback(rcl_timer_t * timer, int64_t last_call_time) 
@@ -184,6 +190,32 @@ void twistCallback(const void * msgin)
 
     prev_cmd_time = millis();
 }
+
+#if defined(TUNE_PID_LOOP)
+void pidKpCallback(const void * msgin) 
+{
+    motor1_pid.updateKp(pid_kp_msg.data);
+    motor2_pid.updateKp(pid_kp_msg.data);
+    motor3_pid.updateKp(pid_kp_msg.data);
+    motor4_pid.updateKp(pid_kp_msg.data);
+}
+
+void pidKdCallback(const void * msgin) 
+{
+    motor1_pid.updateKd(pid_kd_msg.data);
+    motor2_pid.updateKd(pid_kd_msg.data);
+    motor3_pid.updateKd(pid_kd_msg.data);
+    motor4_pid.updateKd(pid_kd_msg.data);
+}
+
+void pidKiCallback(const void * msgin) 
+{
+    motor1_pid.updateKi(pid_ki_msg.data);
+    motor2_pid.updateKi(pid_ki_msg.data);
+    motor3_pid.updateKi(pid_ki_msg.data);
+    motor4_pid.updateKi(pid_ki_msg.data);
+}
+#endif
 
 void createEntities()
 {
@@ -215,6 +247,28 @@ void createEntities()
     motor4_diags.create(node, 4);
 #endif
 
+#if defined(TUNE_PID_LOOP)
+    RCCHECK_WITH_BLINK_CODE(3, rclc_subscription_init_default( 
+        &pid_kp_subscriber, 
+        &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
+        "pid_kp"
+    ));
+    RCCHECK(rclc_subscription_init_default( 
+        &pid_kd_subscriber, 
+        &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
+        "pid_kd"
+    ));
+
+    RCCHECK(rclc_subscription_init_default( 
+        &pid_ki_subscriber, 
+        &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
+        "pid_ki"
+    ));
+#endif
+
     // create twist command subscriber
     RCCHECK(rclc_subscription_init_default( 
         &twist_subscriber, 
@@ -231,7 +285,7 @@ void createEntities()
         controlCallback
     ));
     executor = rclc_executor_get_zero_initialized_executor();
-    RCCHECK(rclc_executor_init(&executor, &support.context, 2, & allocator));
+    RCCHECK(rclc_executor_init(&executor, &support.context, 2 + 3, & allocator));
     RCCHECK(rclc_executor_add_subscription(
         &executor, 
         &twist_subscriber, 
@@ -239,6 +293,29 @@ void createEntities()
         &twistCallback, 
         ON_NEW_DATA
     ));
+#if defined(TUNE_PID_LOOP)
+    RCCHECK_WITH_BLINK_CODE(4, rclc_executor_add_subscription(
+        &executor, 
+        &pid_kp_subscriber, 
+        &pid_kp_msg, 
+        &pidKpCallback, 
+        ON_NEW_DATA
+    ));
+    RCCHECK(rclc_executor_add_subscription(
+        &executor, 
+        &pid_kd_subscriber, 
+        &pid_kd_msg, 
+        &pidKdCallback, 
+        ON_NEW_DATA
+    ));
+    RCCHECK(rclc_executor_add_subscription(
+        &executor, 
+        &pid_ki_subscriber, 
+        &pid_ki_msg, 
+        &pidKiCallback, 
+        ON_NEW_DATA
+    ));
+#endif
     RCCHECK(rclc_executor_add_timer(&executor, &control_timer));
     // synchronize time with the agent
     syncTime();
@@ -260,6 +337,11 @@ void destroyEntities()
     rcl_publisher_fini(&odom_publisher, &node);
     rcl_publisher_fini(&imu_publisher, &node);
     rcl_subscription_fini(&twist_subscriber, &node);
+#if defined(TUNE_PID_LOOP)
+    rcl_subscription_fini(&pid_kp_subscriber, &node);
+    rcl_subscription_fini(&pid_kd_subscriber, &node);
+    rcl_subscription_fini(&pid_ki_subscriber, &node);
+#endif
     rcl_node_fini(&node);
     rcl_timer_fini(&control_timer);
     rclc_executor_fini(&executor);
@@ -321,7 +403,6 @@ void moveBase()
         digitalWrite(MOTOR_RELAY_PWR_OUT, HIGH);
         pwr_relay_on = true;
     }
-
 
     Kinematics::velocities current_vel = kinematics.getVelocities(
         current_rpm1, 
@@ -387,11 +468,11 @@ struct timespec getTime()
     return tp;
 }
 
-void rclErrorLoop() 
+void rclErrorLoop(int n_times) 
 {
     while(true)
     {
-        flashLED(2);
+        flashLED(n_times);
     }
 }
 

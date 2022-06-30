@@ -14,6 +14,7 @@
 
 #include "Arduino.h"
 #include "pid.h"
+#include "util.h"
 
 PID::PID(float min_val, float max_val, float kp, float ki, float kd):
     min_val_(min_val),
@@ -24,30 +25,37 @@ PID::PID(float min_val, float max_val, float kp, float ki, float kd):
 {
 }
 
+void PID::reset()
+{
+    integral_ = 0.0;
+    derivative_ = 0.0;
+    prev_error_ = 0.0;
+    pid_constrained_ = 0.0;
+    pid_raw_ = 0.0;
+}
+
 double PID::compute(float setpoint, float measured_value)
 {
     double error;
-
-#if defined(ELSABOT)
-	// Force PWM output to zero when setpoint is zero
-    if (setpoint == 0.0) {
-        integral_ = 0.0;
-        derivative_ = 0.0;
-        prev_error_ = 0.0;
-        pid_constrained_ = 0.0;
-        return 0.0;
-    }
-#endif
+    double pid;
 
     //setpoint is constrained between min and max to prevent pid from having too much error
     error = setpoint - measured_value;
     integral_ += error;
     derivative_ = error - prev_error_;
 
+    if(setpoint == 0.0 && abs(error) <= 0.05)
+    {
+        integral_ = 0;
+        derivative_ = 0;
+    }
+
     pid_raw_ = (kp_ * error) + (ki_ * integral_) + (kd_ * derivative_);
     prev_error_ = error;
 
+
     pid_constrained_ = constrain(pid_raw_, min_val_, max_val_);
+
     return pid_constrained_;
 }
 
@@ -56,4 +64,19 @@ void PID::updateConstants(float kp, float ki, float kd)
     kp_ = kp;
     ki_ = ki;
     kd_ = kd;
+}
+
+void PID::updateKp(float kp)
+{
+    kp_ = kp;
+}
+
+void PID::updateKd(float kd)
+{
+    kd_ = kd;
+}
+
+void PID::updateKi(float ki)
+{
+    ki_ = ki;
 }

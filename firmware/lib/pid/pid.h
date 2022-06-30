@@ -23,6 +23,11 @@ class PID
         PID(float min_val, float max_val, float kp, float ki, float kd);
         double compute(float setpoint, float measured_value);
         void updateConstants(float kp, float ki, float kd);
+        void updateKp(float kp);
+        void updateKd(float kd);
+        void updateKi(float ki);
+
+        void reset();
 
         // For diagnostics
         double getError() const { return prev_error_; }
