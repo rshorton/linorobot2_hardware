@@ -1,5 +1,9 @@
 
+#if defined(NO_ENCODER)
+#include "encoder_none.h"
+#else
 #include "encoder.h"
+#endif
 
 // Yes, all the code is in the header file, to provide the user
 // configure options with #define (before they include it), and

@@ -78,6 +78,7 @@ class Generic1: public MotorInterface
         float voltage_ref;
         int last_pwm;
         float current_ave;
+        int *dir_status_out_;
 
     protected:
         void forward(int pwm) override
@@ -85,6 +86,9 @@ class Generic1: public MotorInterface
             digitalWrite(in_pin_, HIGH);
             analogWrite(pwm_pin_, abs(pwm));
             last_pwm = pwm;
+            if (dir_status_out_) {
+                *dir_status_out_ = invert_? 0: 1;
+            }                
         }
 
         void reverse(int pwm) override
@@ -92,17 +96,21 @@ class Generic1: public MotorInterface
             digitalWrite(in_pin_, LOW);
             analogWrite(pwm_pin_, abs(pwm));
             last_pwm = pwm;
+            if (dir_status_out_) {
+                *dir_status_out_ = invert_? 1: 0;
+            }                
         }
 
     public:
-        Generic1(float pwm_frequency, int pwm_bits, bool invert, int pwm_pin, int in_pin, int unused=-1, int current_pin= -1): 
+        Generic1(float pwm_frequency, int pwm_bits, bool invert, int pwm_pin, int in_pin, int unused=-1, int current_pin= -1, int *dir_status_out = NULL): 
             MotorInterface(invert),
             in_pin_(in_pin),
             pwm_pin_(pwm_pin),
             current_pin_(current_pin),
             voltage_ref(2.5),
             last_pwm(0),
-            current_ave(0.0)
+            current_ave(0.0),
+            dir_status_out_(dir_status_out)
         {
             pinMode(in_pin_, OUTPUT);
             pinMode(pwm_pin_, OUTPUT);
@@ -127,15 +135,20 @@ class Generic1: public MotorInterface
             if (current_pin_ == -1) {
                 return 0.0;
             }
-            float v_in = (float)analogRead(current_pin_)/1023.0*3.3;
-
+            float v_in = (float)analogRead(current_pin_)*3.3/1023.0;
             if (last_pwm == 0) {
                 voltage_ref = voltage_ref*0.95 + v_in*0.05;
             }
+#if 1   // Current measurement of 18V18 Pololu driver board
+            float current = v_in/0.020;
+            current_ave = current_ave*0.95 + current*0.05;
+#else            
             // ACS712-based current sensor (5A range)
             float current = (voltage_ref - v_in)/0.185;
             current_ave = current_ave*0.95 + current*0.05;
+#endif            
             return current_ave;
+
         }
 
 };

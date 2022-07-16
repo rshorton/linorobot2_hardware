@@ -56,6 +56,14 @@ double PID::compute(float setpoint, float measured_value)
 
     pid_constrained_ = constrain(pid_raw_, min_val_, max_val_);
 
+
+    // Don't drive the output in the opposite direction to the current
+    // direction
+    if (sgn(measured_value) != 0 && 
+        (sgn(measured_value) != sgn(pid_constrained_))) {
+        reset();
+    }
+
     return pid_constrained_;
 }
 

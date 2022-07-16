@@ -17,20 +17,29 @@
 #include "motor.h"
 #define ENCODER_USE_INTERRUPTS
 #define ENCODER_OPTIMIZE_INTERRUPTS
+#if defined(NO_ENCODER)
+#include "encoder_none.h"
+#else
 #include "encoder.h"
+#endif
 #include "kinematics.h"
 
 #define SAMPLE_TIME 10 //s
 
-Encoder motor1_encoder(MOTOR1_ENCODER_A, MOTOR1_ENCODER_B, COUNTS_PER_REV1, MOTOR1_ENCODER_INV);
-Encoder motor2_encoder(MOTOR2_ENCODER_A, MOTOR2_ENCODER_B, COUNTS_PER_REV2, MOTOR2_ENCODER_INV);
-Encoder motor3_encoder(MOTOR3_ENCODER_A, MOTOR3_ENCODER_B, COUNTS_PER_REV3, MOTOR3_ENCODER_INV);
-Encoder motor4_encoder(MOTOR4_ENCODER_A, MOTOR4_ENCODER_B, COUNTS_PER_REV4, MOTOR4_ENCODER_INV);
+int m1_dir_status = 0;
+int m2_dir_status = 0;
+int m3_dir_status = 0;
+int m4_dir_status = 0;
 
-Motor motor1_controller(PWM_FREQUENCY, PWM_BITS, MOTOR1_INV, MOTOR1_PWM, MOTOR1_IN_A, MOTOR1_IN_B);
-Motor motor2_controller(PWM_FREQUENCY, PWM_BITS, MOTOR2_INV, MOTOR2_PWM, MOTOR2_IN_A, MOTOR2_IN_B);
-Motor motor3_controller(PWM_FREQUENCY, PWM_BITS, MOTOR3_INV, MOTOR3_PWM, MOTOR3_IN_A, MOTOR3_IN_B);
-Motor motor4_controller(PWM_FREQUENCY, PWM_BITS, MOTOR4_INV, MOTOR4_PWM, MOTOR4_IN_A, MOTOR4_IN_B);
+Encoder motor1_encoder(MOTOR1_ENCODER_A, MOTOR1_ENCODER_B, COUNTS_PER_REV1, MOTOR1_ENCODER_INV, &m1_dir_status);
+Encoder motor2_encoder(MOTOR2_ENCODER_A, MOTOR2_ENCODER_B, COUNTS_PER_REV2, MOTOR2_ENCODER_INV, &m2_dir_status);
+Encoder motor3_encoder(MOTOR3_ENCODER_A, MOTOR3_ENCODER_B, COUNTS_PER_REV3, MOTOR3_ENCODER_INV, &m3_dir_status);
+Encoder motor4_encoder(MOTOR4_ENCODER_A, MOTOR4_ENCODER_B, COUNTS_PER_REV4, MOTOR4_ENCODER_INV, &m4_dir_status);
+
+Motor motor1_controller(PWM_FREQUENCY, PWM_BITS, MOTOR1_INV, MOTOR1_PWM, MOTOR1_IN_A, MOTOR1_IN_B, -1, &m1_dir_status);
+Motor motor2_controller(PWM_FREQUENCY, PWM_BITS, MOTOR2_INV, MOTOR2_PWM, MOTOR2_IN_A, MOTOR2_IN_B, -1, &m2_dir_status);
+Motor motor3_controller(PWM_FREQUENCY, PWM_BITS, MOTOR3_INV, MOTOR3_PWM, MOTOR3_IN_A, MOTOR3_IN_B, -1, &m3_dir_status);
+Motor motor4_controller(PWM_FREQUENCY, PWM_BITS, MOTOR4_INV, MOTOR4_PWM, MOTOR4_IN_A, MOTOR4_IN_B, -1, &m4_dir_status);
 
 Kinematics kinematics(
     Kinematics::LINO_BASE, 
@@ -56,10 +65,14 @@ void setup()
     Serial.println("Sampling process will spin the motors at its maximum RPM.");
     Serial.println("Please ensure that the robot is ELEVATED and there are NO OBSTRUCTIONS to the wheels.");
     Serial.println("");
-    Serial.println("Type 'spin' and press enter to spin the motors.");
-    Serial.println("Type 'sample' and press enter to spin the motors with motor summary.");
+    Serial.println("Type 'spin' or 's' and press enter to spin the motors.");
+    Serial.println("Type 'sample' or 'c' and press enter to spin the motors with motor summary.");
     Serial.println("Press enter to clear command.");
     Serial.println("");
+
+    pinMode(MOTOR_RELAY_PWR_OUT, OUTPUT);
+    digitalWrite(MOTOR_RELAY_PWR_OUT, HIGH);
+
 }
 
 void loop()
@@ -72,13 +85,13 @@ void loop()
         cmd.concat(character); 
         Serial.print(character);
         delay(1);
-        if(character == '\r' and cmd.equals("spin\r"))
+        if(character == '\r' and (cmd.equals("spin\r") || cmd.equals("s\r")))
         {
             cmd = "";
             Serial.println("\r\n");
             sampleMotors(0);
         }
-        else if(character == '\r' and cmd.equals("sample\r"))
+        else if(character == '\r' and (cmd.equals("sample\r") || cmd.equals("c\r")))
         {
             cmd = "";
             Serial.println("\r\n");
@@ -102,6 +115,12 @@ void sampleMotors(bool show_summary)
     float measured_voltage = constrain(MOTOR_POWER_MEASURED_VOLTAGE, 0, MOTOR_OPERATING_VOLTAGE);
     float scaled_max_rpm = ((measured_voltage / MOTOR_OPERATING_VOLTAGE) * MOTOR_MAX_RPM);
     float total_rev = scaled_max_rpm * (SAMPLE_TIME / 60.0);
+
+
+    for(int i=0; i<total_motors; i++)
+    {
+        encoders[i]->write(0);
+    }        
 
     for(int i=0; i<total_motors; i++)
     {
@@ -127,7 +146,16 @@ void sampleMotors(bool show_summary)
                 Serial.print(".");
             }
 
-            motors[i]->spin(PWM_MAX);
+            motors[i]->spin(200);
+
+            Serial.print(encoders[0]->read());
+            Serial.print(" ");
+            Serial.print(encoders[1]->read());
+            Serial.print(" ");
+            Serial.print(encoders[2]->read());
+            Serial.print(" ");
+            Serial.print(encoders[3]->read());
+            Serial.println("\r\n");
         }
         
         counts_per_rev[i] = encoders[i]->read() / total_rev;

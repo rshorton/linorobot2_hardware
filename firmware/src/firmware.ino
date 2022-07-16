@@ -34,12 +34,16 @@
 #include "imu.h"
 #define ENCODER_USE_INTERRUPTS
 #define ENCODER_OPTIMIZE_INTERRUPTS
+#if defined(NO_ENCODER)
+#include "encoder_none.h"
+#else
 #include "encoder.h"
+#endif
 #include "diagnostics.h"
 #include "util.h"
 
-#define PUBLISH_MOTOR_DIAGS
-#define TUNE_PID_LOOP
+#define PUBLISH_MOTOR_DIAGS         // Define to publish the PID status for plotting via RQT
+#define TUNE_PID_LOOP               // Allow tweaking of PID parameters via topic write
 
 #define ERR_BLINK_GENERAL   2
 #define ERR_BLINK_IMU       3
@@ -80,15 +84,20 @@ bool micro_ros_init_successful = false;
 Kinematics::rpm req_rpm;
 Kinematics::rpm last_rpm = {0.0, 0.0, 0.0, 0.0};
 
-Encoder motor1_encoder(MOTOR1_ENCODER_A, MOTOR1_ENCODER_B, COUNTS_PER_REV1, MOTOR1_ENCODER_INV);
-Encoder motor2_encoder(MOTOR2_ENCODER_A, MOTOR2_ENCODER_B, COUNTS_PER_REV2, MOTOR2_ENCODER_INV);
-Encoder motor3_encoder(MOTOR3_ENCODER_A, MOTOR3_ENCODER_B, COUNTS_PER_REV3, MOTOR3_ENCODER_INV);
-Encoder motor4_encoder(MOTOR4_ENCODER_A, MOTOR4_ENCODER_B, COUNTS_PER_REV4, MOTOR4_ENCODER_INV);
+int m1_dir_status = 0;
+int m2_dir_status = 0;
+int m3_dir_status = 0;
+int m4_dir_status = 0;
 
-Motor motor1_controller(PWM_FREQUENCY, PWM_BITS, MOTOR1_INV, MOTOR1_PWM, MOTOR1_IN_A, MOTOR1_IN_B, MOTOR1_CURRENT);
-Motor motor2_controller(PWM_FREQUENCY, PWM_BITS, MOTOR2_INV, MOTOR2_PWM, MOTOR2_IN_A, MOTOR2_IN_B, MOTOR2_CURRENT);
-Motor motor3_controller(PWM_FREQUENCY, PWM_BITS, MOTOR3_INV, MOTOR3_PWM, MOTOR3_IN_A, MOTOR3_IN_B, MOTOR3_CURRENT);
-Motor motor4_controller(PWM_FREQUENCY, PWM_BITS, MOTOR4_INV, MOTOR4_PWM, MOTOR4_IN_A, MOTOR4_IN_B, MOTOR4_CURRENT);
+Encoder motor1_encoder(MOTOR1_ENCODER_A, MOTOR1_ENCODER_B, COUNTS_PER_REV1, MOTOR1_ENCODER_INV, &m1_dir_status);
+Encoder motor2_encoder(MOTOR2_ENCODER_A, MOTOR2_ENCODER_B, COUNTS_PER_REV2, MOTOR2_ENCODER_INV, &m2_dir_status);
+Encoder motor3_encoder(MOTOR3_ENCODER_A, MOTOR3_ENCODER_B, COUNTS_PER_REV3, MOTOR3_ENCODER_INV, &m3_dir_status);
+Encoder motor4_encoder(MOTOR4_ENCODER_A, MOTOR4_ENCODER_B, COUNTS_PER_REV4, MOTOR4_ENCODER_INV, &m4_dir_status);
+
+Motor motor1_controller(PWM_FREQUENCY, PWM_BITS, MOTOR1_INV, MOTOR1_PWM, MOTOR1_IN_A, MOTOR1_IN_B, MOTOR1_CURRENT, &m1_dir_status);
+Motor motor2_controller(PWM_FREQUENCY, PWM_BITS, MOTOR2_INV, MOTOR2_PWM, MOTOR2_IN_A, MOTOR2_IN_B, MOTOR2_CURRENT, &m2_dir_status);
+Motor motor3_controller(PWM_FREQUENCY, PWM_BITS, MOTOR3_INV, MOTOR3_PWM, MOTOR3_IN_A, MOTOR3_IN_B, MOTOR3_CURRENT, &m3_dir_status);
+Motor motor4_controller(PWM_FREQUENCY, PWM_BITS, MOTOR4_INV, MOTOR4_PWM, MOTOR4_IN_A, MOTOR4_IN_B, MOTOR4_CURRENT, &m4_dir_status);
 
 PID motor1_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
 PID motor2_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
@@ -276,6 +285,7 @@ void createEntities()
         ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
         "cmd_vel"
     ));
+
     // create timer for actuating the motors at 50 Hz (1000/20)
     const unsigned int control_timeout = 20;
     RCCHECK(rclc_timer_init_default( 
@@ -362,6 +372,13 @@ void fullStop()
     motor4_controller.brake();
 }
 
+bool directionChange(float cur_rpm, float req_rpm)
+{
+    return abs(cur_rpm) > 0.1 && sgn(cur_rpm) != sgn(req_rpm);
+}
+
+int encoder_read_cnt = 0;
+
 void moveBase()
 {
     // brake if there's no command received, or when it's only the first command sent
@@ -385,6 +402,23 @@ void moveBase()
     current_rpm2 = motor2_encoder.getRPM();
     current_rpm3 = motor3_encoder.getRPM();
     current_rpm4 = motor4_encoder.getRPM();
+
+    // Don't drive motor in the opposite direction until it stops
+    if (directionChange(current_rpm1, req_rpm.motor1)) {
+        req_rpm.motor1 = 0.0;
+    }
+
+    if (directionChange(current_rpm2, req_rpm.motor2)) {
+        req_rpm.motor2 = 0.0;
+    }
+
+    if (directionChange(current_rpm3, req_rpm.motor3)) {
+        req_rpm.motor3 = 0.0;
+    }
+
+    if (directionChange(current_rpm4, req_rpm.motor4)) {
+        req_rpm.motor4 = 0.0;
+    }
 
     // the required rpm is capped at -/+ MAX_RPM to prevent the PID from having too much error
     // the PWM value sent to the motor driver is the calculated PID based on required RPM vs measured RPM

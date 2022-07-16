@@ -17,6 +17,7 @@
 
 class MotorInterface
 {
+    protected:
     bool invert_;
     float ave_current_;
     protected:
