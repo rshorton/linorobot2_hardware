@@ -5,7 +5,7 @@ See https://github.com/linorobot/linorobot2_hardware for the official readme inf
 
 # Elsabot 4WD
 
-![Elsabot](docs/elsabot_4wd.png)
+![Elsabot](docs/elsabot_1.jpg)
 
 The Elsabot 4WD base:
 
@@ -24,7 +24,20 @@ The Elsabot 4WD base:
 * USB speaker
 * Seeed ReSpeaker USB Mic Array
 * Various DC-to-DC converters
+* 10-port USB hub
+* 433 MHz remote control relay
+* Motor power relay
 
 See this project for the bring-up scripts:
 
 https://github.com/rshorton/elsabot_4wd
+
+
+## Glamour Shots
+
+![Elsabot](docs/elsabot_2.jpg)
+![Elsabot](docs/elsabot_3.jpg)
+![Elsabot](docs/elsabot_4.jpg)
+![Elsabot](docs/elsabot_5.jpg)
+![Elsabot](docs/elsabot_6.jpg)
+![Elsabot](docs/elsabot_7.jpg)
