@@ -7,6 +7,8 @@ See https://github.com/linorobot/linorobot2_hardware for the official readme inf
 
 ![Elsabot](docs/elsabot_1.jpg)
 
+YouTube video: https://youtu.be/J3qfA5_piV4
+
 The Elsabot 4WD base:
 
 * 4 wheels using skid steering
@@ -28,7 +30,7 @@ The Elsabot 4WD base:
 * 433 MHz remote control relay
 * Motor power relay
 
-See this project for the bring-up scripts:
+See this project for the ROS2 bring-up scripts:
 
 https://github.com/rshorton/elsabot_4wd
 
