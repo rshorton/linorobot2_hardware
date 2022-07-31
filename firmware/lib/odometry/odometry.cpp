@@ -68,7 +68,8 @@ void Odometry::update(float vel_dt, float linear_vel_x, float linear_vel_y, floa
 
     odom_msg_.twist.covariance[0] = 0.0001;
     odom_msg_.twist.covariance[7] = 0.0001;
-    odom_msg_.twist.covariance[35] = 0.0001;
+//    odom_msg_.twist.covariance[35] = 0.0001;
+    odom_msg_.twist.covariance[35] = 0.01;
 }
 
 nav_msgs__msg__Odometry Odometry::getData()
