@@ -42,7 +42,7 @@
 #include "diagnostics.h"
 #include "util.h"
 
-#define PUBLISH_MOTOR_DIAGS         // Define to publish the PID status for plotting via RQT
+#undef PUBLISH_MOTOR_DIAGS         // Define to publish the PID status for plotting via RQT
 #define TUNE_PID_LOOP               // Allow tweaking of PID parameters via topic write
 
 #define ERR_BLINK_GENERAL   2
