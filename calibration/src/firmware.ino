@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include <Arduino.h>
+#include <stdio.h>
 #include "config.h"
 #include "motor.h"
 #define ENCODER_USE_INTERRUPTS
@@ -20,6 +21,10 @@
 #include "encoder_none.h"
 #include "encoder.h"
 #include "kinematics.h"
+#include "pid.h"
+#include "util.h"
+
+#define STEERING_PID
 
 #define SAMPLE_TIME         8 //s
 #define ONE_SEC_IN_US       1000000
@@ -43,6 +48,10 @@ Motor motor2_controller(PWM_FREQUENCY, PWM_BITS, MOTOR2_INV, MOTOR2_PWM, MOTOR2_
 
 // Steering motor
 Motor motor_str_controller(PWM_FREQUENCY, PWM_BITS, MOTOR_STR_INV, MOTOR_STR_PWM, MOTOR_STR_IN_A, MOTOR_STR_IN_B, &mstr_dir_status);
+
+const int STR_PWM_MIN = -1000;
+const int STR_PWM_MAX = 1000;
+PID motor_str_pid(STR_PWM_MIN, STR_PWM_MAX, 70, 10.0, 25.0);
 
 Kinematics kinematics(
     Kinematics::LINO_BASE, 
@@ -258,6 +267,8 @@ void testSteeringMotorControl()
     long str_shaft_pos = 0;
     unsigned long now = 0;
 
+    int last_diff = 0;    
+
     while(true)
     {
         now = micros();
@@ -284,6 +295,22 @@ void testSteeringMotorControl()
         {
             next_update = now + 50*1000;
 
+#if defined(STEERING_PID)
+            int new_diff = str_shaft_pos - str_whl_pos;
+            if (sgn(last_diff) != sgn(new_diff)) {
+                motor_str_controller.spin(0);
+                motor_str_pid.reset();
+                next_update = now + 50*1000;
+            } else {
+                int whl_pos = abs(new_diff) > 1? str_whl_pos: str_shaft_pos;
+                int new_pwm = motor_str_pid.compute(whl_pos, str_shaft_pos, false);
+                motor_str_controller.spin(new_pwm);
+                if (new_pwm != 0) {
+                    Serial.println(new_pwm);
+                }
+            }
+            last_diff = new_diff;
+#else
             long diff = str_shaft_pos - str_whl_pos;
             if (diff > 1) {
                 if (dir > 0) {
@@ -308,9 +335,10 @@ void testSteeringMotorControl()
                 delayMicroseconds(50000);
                 dir = 0;
             }
+#endif            
         }
 
-        if (update_status)
+        if (update_status || update_ctrl)
         {
             next_status = now + 500*1000;
             Serial.print("      StrWhl: ");

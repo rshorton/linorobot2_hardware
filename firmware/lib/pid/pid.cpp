@@ -34,7 +34,7 @@ void PID::reset()
     pid_raw_ = 0.0;
 }
 
-double PID::compute(float setpoint, float measured_value)
+double PID::compute(float setpoint, float measured_value, bool limit_dir_change)
 {
     double error;
 
@@ -58,10 +58,12 @@ double PID::compute(float setpoint, float measured_value)
 
     // Don't drive the output in the opposite direction to the current
     // direction
-    if (sgn(measured_value) != 0 && 
-        (sgn(measured_value) != sgn(pid_constrained_))) {
-        reset();
-    }
+    if (limit_dir_change) {
+        if (sgn(measured_value) != 0 && 
+            (sgn(measured_value) != sgn(pid_constrained_))) {
+            reset();
+        }
+    }        
 
     return pid_constrained_;
 }

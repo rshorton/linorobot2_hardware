@@ -21,7 +21,7 @@ class PID
 {
     public:
         PID(float min_val, float max_val, float kp, float ki, float kd);
-        double compute(float setpoint, float measured_value);
+        double compute(float setpoint, float measured_value, bool limit_dir_change = true);
         void updateConstants(float kp, float ki, float kd);
         void updateKp(float kp);
         void updateKd(float kd);
