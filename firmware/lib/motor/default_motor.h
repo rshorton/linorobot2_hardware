@@ -158,25 +158,33 @@ class BTS7960: public MotorInterface
     private:
         int in_a_pin_;
         int in_b_pin_;
+        int *dir_status_out_;
 
     protected:
         void forward(int pwm) override
         {
             analogWrite(in_a_pin_, 0);
             analogWrite(in_b_pin_, abs(pwm));
+            if (dir_status_out_) {
+                *dir_status_out_ = invert_? 0: 1;
+            }                
         }
 
         void reverse(int pwm) override
         {
             analogWrite(in_b_pin_, 0);
             analogWrite(in_a_pin_, abs(pwm));
+            if (dir_status_out_) {
+                *dir_status_out_ = invert_? 1: 0;
+            }                
         }
 
     public:
-        BTS7960(float pwm_frequency, int pwm_bits, bool invert, int unused, int in_a_pin, int in_b_pin): 
+        BTS7960(float pwm_frequency, int pwm_bits, bool invert, int unused, int in_a_pin, int in_b_pin, int *dir_status_out = NULL): 
             MotorInterface(invert),
             in_a_pin_(in_a_pin),
-            in_b_pin_(in_b_pin)
+            in_b_pin_(in_b_pin),
+            dir_status_out_(dir_status_out)
         {
             pinMode(in_a_pin_, OUTPUT);
             pinMode(in_b_pin_, OUTPUT);

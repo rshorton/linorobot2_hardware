@@ -7,7 +7,9 @@
 #include <stdio.h>
 
 #include <rcl/rcl.h>
+#if defined(ELSABOT_MOTOR_DIAG)
 #include <elsabot_custom_messages/msg/motor_diag.h>
+#endif
 
 #include "pid.h"
 
@@ -23,7 +25,9 @@ class MotorDiags
         bool inited_;
         int index_;
         rcl_publisher_t motor_diag_publisher_;
+#if defined(ELSABOT_MOTOR_DIAG)        
         elsabot_custom_messages__msg__MotorDiag motor_diag_msg_;
+#endif        
 };
 
 #endif

@@ -29,8 +29,8 @@
  * measuring RPM
  */
 
-#ifndef Encoder_h_
-#define Encoder_h_
+#ifndef EncoderNone_h_
+#define EncoderNone_h_
 
 #if defined(ARDUINO) && ARDUINO >= 100
 #include "Arduino.h"
@@ -64,13 +64,13 @@
 typedef struct {
 	int32_t                position;
 	int					 * dir_status_out;
-} Encoder_internal_state_t;
+} EncoderNone_internal_state_t;
 
-class Encoder
+class EncoderNone
 {
 public:
-	Encoder(uint8_t pin1, uint8_t pin2, int counts_per_rev, bool invert, int *dir_status_out):
-		counts_per_rev_(counts_per_rev), prev_encoder_ticks_(0), prev_update_time_(0) {
+	EncoderNone(uint8_t pin1, uint8_t pin2, int counts_per_rev, bool invert, int *dir_status_out):
+		counts_per_rev_(counts_per_rev), prev_update_time_(0), prev_encoder_ticks_(0) {
 
 		(void)pin2;
 		(void)invert;
@@ -126,16 +126,16 @@ private:
 	int counts_per_rev_;
 	unsigned long prev_update_time_;
     long prev_encoder_ticks_;
-	Encoder_internal_state_t encoder;
+	EncoderNone_internal_state_t encoder;
 
 public:
-	static Encoder_internal_state_t * interruptArgs[ENCODER_ARGLIST_SIZE];
+	static EncoderNone_internal_state_t * interruptArgs[ENCODER_ARGLIST_SIZE];
 
 public:
 	// update() is not meant to be called from outside Encoder,
 	// but it is public to allow static interrupt routines.
 	// DO NOT call update() directly from sketches.
-	static void update(Encoder_internal_state_t *arg) {
+	static void update(EncoderNone_internal_state_t *arg) {
 
 		// Motors with a single Hall effect sensor.
 		// dir out status is set by motor driver (yeah a hack)
@@ -151,7 +151,7 @@ private:
 	// this giant function is an unfortunate consequence of Arduino's
 	// attachInterrupt function not supporting any way to pass a pointer
 	// or other context to the attached function.
-	static uint8_t attach_interrupt(uint8_t pin, Encoder_internal_state_t *state) {
+	static uint8_t attach_interrupt(uint8_t pin, EncoderNone_internal_state_t *state) {
 		switch (pin) {
 		#ifdef CORE_INT0_PIN
 			case CORE_INT0_PIN:

@@ -17,29 +17,32 @@
 #include "motor.h"
 #define ENCODER_USE_INTERRUPTS
 #define ENCODER_OPTIMIZE_INTERRUPTS
-#if defined(NO_ENCODER)
 #include "encoder_none.h"
-#else
 #include "encoder.h"
-#endif
 #include "kinematics.h"
 
-#define SAMPLE_TIME 10 //s
+#define SAMPLE_TIME         8 //s
+#define ONE_SEC_IN_US       1000000
 
 int m1_dir_status = 0;
 int m2_dir_status = 0;
-int m3_dir_status = 0;
-int m4_dir_status = 0;
+int mstr_dir_status = 0;
 
-Encoder motor1_encoder(MOTOR1_ENCODER_A, MOTOR1_ENCODER_B, COUNTS_PER_REV1, MOTOR1_ENCODER_INV, &m1_dir_status);
-Encoder motor2_encoder(MOTOR2_ENCODER_A, MOTOR2_ENCODER_B, COUNTS_PER_REV2, MOTOR2_ENCODER_INV, &m2_dir_status);
-Encoder motor3_encoder(MOTOR3_ENCODER_A, MOTOR3_ENCODER_B, COUNTS_PER_REV3, MOTOR3_ENCODER_INV, &m3_dir_status);
-Encoder motor4_encoder(MOTOR4_ENCODER_A, MOTOR4_ENCODER_B, COUNTS_PER_REV4, MOTOR4_ENCODER_INV, &m4_dir_status);
+// Steering wheel encoder
+Encoder str_wheel_enc(STEERWHL_ENCODER_A, STEERWHL_ENCODER_B, 1);
+// Steering motor/shaft encoder
+Encoder str_motor_enc(STEERMTR_ENCODER_A, STEERMTR_ENCODER_B, 1);
 
-Motor motor1_controller(PWM_FREQUENCY, PWM_BITS, MOTOR1_INV, MOTOR1_PWM, MOTOR1_IN_A, MOTOR1_IN_B, -1, &m1_dir_status);
-Motor motor2_controller(PWM_FREQUENCY, PWM_BITS, MOTOR2_INV, MOTOR2_PWM, MOTOR2_IN_A, MOTOR2_IN_B, -1, &m2_dir_status);
-Motor motor3_controller(PWM_FREQUENCY, PWM_BITS, MOTOR3_INV, MOTOR3_PWM, MOTOR3_IN_A, MOTOR3_IN_B, -1, &m3_dir_status);
-Motor motor4_controller(PWM_FREQUENCY, PWM_BITS, MOTOR4_INV, MOTOR4_PWM, MOTOR4_IN_A, MOTOR4_IN_B, -1, &m4_dir_status);
+// Rear wheel pulse counter
+EncoderNone motor1_encoder(MOTOR1_ENCODER_A, MOTOR1_ENCODER_B, COUNTS_PER_REV1, MOTOR1_ENCODER_INV, &m1_dir_status);
+EncoderNone motor2_encoder(MOTOR2_ENCODER_A, MOTOR2_ENCODER_B, COUNTS_PER_REV2, MOTOR2_ENCODER_INV, &m2_dir_status);
+
+// Rear motors
+Motor motor1_controller(PWM_FREQUENCY, PWM_BITS, MOTOR1_INV, MOTOR1_PWM, MOTOR1_IN_A, MOTOR1_IN_B, &m1_dir_status);
+Motor motor2_controller(PWM_FREQUENCY, PWM_BITS, MOTOR2_INV, MOTOR2_PWM, MOTOR2_IN_A, MOTOR2_IN_B, &m2_dir_status);
+
+// Steering motor
+Motor motor_str_controller(PWM_FREQUENCY, PWM_BITS, MOTOR_STR_INV, MOTOR_STR_PWM, MOTOR_STR_IN_A, MOTOR_STR_IN_B, &mstr_dir_status);
 
 Kinematics kinematics(
     Kinematics::LINO_BASE, 
@@ -51,11 +54,14 @@ Kinematics kinematics(
     LR_WHEELS_DISTANCE
 );
 
-long long int counts_per_rev[4];
-int total_motors = 4;
-Motor *motors[4] = {&motor1_controller, &motor2_controller, &motor3_controller, &motor4_controller};
-Encoder *encoders[4] = {&motor1_encoder, &motor2_encoder, &motor3_encoder, &motor4_encoder};
-String labels[4] = {"FRONT LEFT - M1: ", "FRONT RIGHT - M2: ", "REAR LEFT - M3: ", "REAR RIGHT - M4: "};
+const int total_motors = 2;
+long long int counts_per_rev[total_motors];
+Motor *motors[] = {&motor1_controller, &motor2_controller};
+EncoderNone *encoders[] = {&motor1_encoder, &motor2_encoder};
+String labels[] = {"REAR LEFT - M1: ", "REAR RIGHT - M2: "};
+
+long str_wheel_enc_pos = 0;
+long str_motor_enc_pos = 0;
 
 void setup()
 {
@@ -65,53 +71,70 @@ void setup()
     Serial.println("Sampling process will spin the motors at its maximum RPM.");
     Serial.println("Please ensure that the robot is ELEVATED and there are NO OBSTRUCTIONS to the wheels.");
     Serial.println("");
-    Serial.println("Type 'spin' or 's' and press enter to spin the motors.");
-    Serial.println("Type 'sample' or 'c' and press enter to spin the motors with motor summary.");
-    Serial.println("Press enter to clear command.");
+    Serial.println("Type 'r' to spin the rear motors one at a time.");
+    Serial.println("Type 's' to run steering control test.");
     Serial.println("");
 
     pinMode(MOTOR_RELAY_PWR_OUT, OUTPUT);
     digitalWrite(MOTOR_RELAY_PWR_OUT, HIGH);
+    pinMode(MOTOR_RELAY_PWR_IN, INPUT);
 
 }
 
+static String cmd = "";
+
 void loop()
 {
-    static String cmd = "";
-
     while (Serial.available())
     {
         char character = Serial.read(); 
         cmd.concat(character); 
         Serial.print(character);
         delay(1);
-        if(character == '\r' and (cmd.equals("spin\r") || cmd.equals("s\r")))
-        {
-            cmd = "";
-            Serial.println("\r\n");
-            sampleMotors(0);
-        }
-        else if(character == '\r' and (cmd.equals("sample\r") || cmd.equals("c\r")))
+        if(cmd.equals("r"))
         {
             cmd = "";
             Serial.println("\r\n");
             sampleMotors(1);
         }
+        else if (cmd.equals("s"))
+        {
+            cmd = "";
+            Serial.println("\r\n");
+            testSteeringMotorControl();
+        }
         else if(character == '\r')
         {
             Serial.println("");
             cmd = "";
+        } else {
+            Serial.println("no");
         }
     }
+
+#if defined(PRINT_STEERING_ENC_STATUS)
+    bool show_enc_pos = false;
+    long newPosition = str_wheel_enc.read();
+    if (newPosition != str_wheel_enc_pos) {
+        str_wheel_enc_pos = newPosition;
+        show_enc_pos = true;
+    }
+    newPosition = str_motor_enc.read();
+    if (newPosition != str_motor_enc_pos) {
+        str_motor_enc_pos = newPosition;
+        show_enc_pos = true;
+    }
+    if (show_enc_pos) {
+        Serial.print("Steering enc: ");
+        Serial.print(str_wheel_enc_pos);
+        Serial.print(", ");
+        Serial.println(str_motor_enc_pos);
+    }
+#endif    
 }
 
 void sampleMotors(bool show_summary)
 {
-    if(Kinematics::LINO_BASE == Kinematics::DIFFERENTIAL_DRIVE)
-    {
-        total_motors = 2;
-    }
-
     float measured_voltage = constrain(MOTOR_POWER_MEASURED_VOLTAGE, 0, MOTOR_OPERATING_VOLTAGE);
     float scaled_max_rpm = ((measured_voltage / MOTOR_OPERATING_VOLTAGE) * MOTOR_MAX_RPM);
     float total_rev = scaled_max_rpm * (SAMPLE_TIME / 60.0);
@@ -133,33 +156,31 @@ void sampleMotors(bool show_summary)
         encoders[i]->write(0);
         while(true)
         {
-            if(micros() - start_time >= SAMPLE_TIME * 1000000)
+            if(micros() - start_time >= SAMPLE_TIME * ONE_SEC_IN_US)
             {
                 motors[i]->spin(0);
                 Serial.println("");
                 break;
             }
 
-            if(micros() - last_status >= 1000000)
+            if(micros() - last_status >= ONE_SEC_IN_US)
             {
                 last_status = micros();
                 Serial.print(".");
             }
 
-            motors[i]->spin(200);
+            motors[i]->spin(300);
 
             Serial.print(encoders[0]->read());
             Serial.print(" ");
             Serial.print(encoders[1]->read());
-            Serial.print(" ");
-            Serial.print(encoders[2]->read());
-            Serial.print(" ");
-            Serial.print(encoders[3]->read());
             Serial.println("\r\n");
         }
+        Serial.println("Next motor");
         
         counts_per_rev[i] = encoders[i]->read() / total_rev;
     }
+    Serial.println("Finished");
     if(show_summary)
         printSummary();
 }
@@ -174,14 +195,6 @@ void printSummary()
     Serial.print(labels[1]);
     Serial.println(encoders[1]->read());
 
-    Serial.print(labels[2]);
-    Serial.print(encoders[2]->read());
-    Serial.print(" ");
-
-    Serial.print(labels[3]);
-    Serial.println(encoders[3]->read());
-    Serial.println("");
-
     Serial.println("================COUNTS PER REVOLUTION=================");
     Serial.print(labels[0]);
     Serial.print(counts_per_rev[0]);
@@ -189,14 +202,6 @@ void printSummary()
 
     Serial.print(labels[1]);
     Serial.println(counts_per_rev[1]);
-    
-    Serial.print(labels[2]);
-    Serial.print(counts_per_rev[2]);
-    Serial.print(" ");
-
-    Serial.print(labels[3]);
-    Serial.println(counts_per_rev[3]);
-    Serial.println("");
 
     Serial.println("====================MAX VELOCITIES====================");
     float max_rpm = kinematics.getMaxRPM();
@@ -211,4 +216,107 @@ void printSummary()
     Serial.print("Angular Velocity: +- ");
     Serial.print(max_angular.angular_z);
     Serial.println(" rad/s");
+}
+
+void testSteeringMotor()
+{
+    int pwm = 800;
+    unsigned long next_speed_chg = micros();
+
+    while(true)
+    {
+        if(micros() > next_speed_chg)
+        {
+            pwm += 40;
+            if (pwm > 4000) {
+                motor_str_controller.spin(0);
+                break;
+            }
+            next_speed_chg = micros() + 5*ONE_SEC_IN_US;
+            motor_str_controller.spin(pwm);
+            Serial.print("Speed: ");
+            Serial.print(pwm);
+            Serial.println("");
+        }
+    }
+}
+
+// Test steering control - simple non-pid algorithm
+void testSteeringMotorControl()
+{
+    str_wheel_enc.readAndReset();
+    str_motor_enc.readAndReset();
+    int dir = 0;
+
+    unsigned long next_update = 0;
+    unsigned long next_status = 0;
+
+    bool update_ctrl = false;
+    bool update_status = false;
+
+    long str_whl_pos = 0;
+    long str_shaft_pos = 0;
+    unsigned long now = 0;
+
+    while(true)
+    {
+        now = micros();
+        update_ctrl = now > next_update;
+        update_status = now > next_status;
+
+
+        if (update_ctrl || update_status)
+        {
+            str_whl_pos = -1*str_wheel_enc.read();
+            str_whl_pos = 2*str_whl_pos/3;
+
+            if (str_whl_pos > 22) {
+                str_whl_pos = 22;
+            } else if (str_whl_pos < -16) {
+                str_whl_pos  = -16;
+            }
+
+            str_shaft_pos = str_motor_enc.read();
+        }
+
+
+        if (update_ctrl)
+        {
+            next_update = now + 50*1000;
+
+            long diff = str_shaft_pos - str_whl_pos;
+            if (diff > 1) {
+                if (dir > 0) {
+                    motor_str_controller.spin(0);
+                    delayMicroseconds(50000);
+                }
+                dir = -1;
+                motor_str_controller.spin(abs(diff) > 3? -1000: -500);
+                Serial.print("< ");
+                Serial.println(diff);
+            } else if (diff < -1) {
+                if (dir < 0) {
+                    motor_str_controller.spin(0);
+                    delayMicroseconds(50000);
+                }
+                dir = 1;
+                motor_str_controller.spin(abs(diff) > 3? 1000: 500);
+                Serial.print("> ");
+                Serial.println(diff);
+            } else {
+                motor_str_controller.spin(0);
+                delayMicroseconds(50000);
+                dir = 0;
+            }
+        }
+
+        if (update_status)
+        {
+            next_status = now + 500*1000;
+            Serial.print("      StrWhl: ");
+            Serial.print(str_whl_pos);
+            Serial.print("      StrShaft: ");
+            Serial.println(str_shaft_pos);
+        }
+    }
 }
