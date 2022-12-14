@@ -227,8 +227,8 @@ void testSteeringMotor()
     }
 }
 
-const int LEFT_STEERING_LIMIT = 12;
-const int RIGHT_STEERING_LIMIT = -12;
+const int LEFT_STEERING_LIMIT = 14;
+const int RIGHT_STEERING_LIMIT = -14;
 
 // Test steering control
 void testSteeringMotorControl(bool reset)
@@ -317,7 +317,7 @@ void testAutoCenter()
     unsigned long next_status = 0;
     unsigned long now = 0;
 
-    int test_pos = 0;
+    int next_pos = 0;
 
     while (true)
     {
@@ -333,13 +333,13 @@ void testAutoCenter()
                 break;
             }
 
-            int diff = test_pos - str_shaft_pos;
+            int diff = next_pos - str_shaft_pos;
 
             if (now > next_status)
             {
                 next_status = now + 750 * 1000;
                 Serial.print("Checking\n\r  Test: ");
-                Serial.print(test_pos);
+                Serial.print(next_pos);
                 Serial.print(", actual: ");
                 Serial.print(str_shaft_pos);
                 Serial.print(", diff: ");
@@ -347,9 +347,9 @@ void testAutoCenter()
             }
             if (diff <= 0)
             {
-                test_pos++;
+                next_pos++;
             }
-            int pwm = motor_str_pid.compute(test_pos, str_shaft_pos, false);
+            int pwm = motor_str_pid.compute(next_pos, str_shaft_pos, false);
             motor_str_controller.spin(pwm);
             Serial.print("PWM ");
             Serial.println(pwm);
@@ -357,5 +357,41 @@ void testAutoCenter()
     }
     str_wheel_enc.readAndReset();
     str_motor_enc.write(LEFT_STEERING_LIMIT);
+    next_pos = str_motor_enc.read();
+
+    while (true)
+    {
+        now = micros();
+        if (now > next_update)
+        {
+            next_update = now + 50 * 1000;
+            int str_shaft_pos = str_motor_enc.read();
+
+            if (str_shaft_pos <= 0) {
+                break;
+            }
+
+            int diff = next_pos - str_shaft_pos;
+
+            if (now > next_status)
+            {
+                next_status = now + 750 * 1000;
+                Serial.print("Checking\n\r  Test: ");
+                Serial.print(next_pos);
+                Serial.print(", actual: ");
+                Serial.print(str_shaft_pos);
+                Serial.print(", diff: ");
+                Serial.println(diff);
+            }
+            if (diff >= 0)
+            {
+                next_pos--;
+            }
+            int pwm = motor_str_pid.compute(next_pos, str_shaft_pos, false);
+            motor_str_controller.spin(pwm);
+            Serial.print("PWM ");
+            Serial.println(pwm);
+        }
+    }
     testSteeringMotorControl(false);
 }
