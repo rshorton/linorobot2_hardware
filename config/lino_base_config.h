@@ -185,8 +185,9 @@ ROBOT ORIENTATION
 // using this input.
 #define MOTOR_RELAY_PWR_IN  7
 
-#define FORW_REV_SW_IN      4
-#define ACCEL_SW_IN         5
-#define IGN_SW_IN           10
-
+// Misc Inputs
+#define FORW_REV_SW_IN      4   // Active ?? when in up position
+#define ACCEL_SW_IN         5   // Active low when pressed
+#define IGN_SW_IN           10  // Active low switch input
+#define STEER_LEFT_LIMIT_IN 3   // Active low left limit Hall sensor
 #endif

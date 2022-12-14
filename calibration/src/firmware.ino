@@ -1,3 +1,4 @@
+// Original file:
 // Copyright (c) 2021 Juan Miguel Jimeno
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,10 +25,8 @@
 #include "pid.h"
 #include "util.h"
 
-#define STEERING_PID
-
-#define SAMPLE_TIME         8 //s
-#define ONE_SEC_IN_US       1000000
+#define SAMPLE_TIME 8 // s
+#define ONE_SEC_IN_US 1000000
 
 int m1_dir_status = 0;
 int m2_dir_status = 0;
@@ -51,17 +50,16 @@ Motor motor_str_controller(PWM_FREQUENCY, PWM_BITS, MOTOR_STR_INV, MOTOR_STR_PWM
 
 const int STR_PWM_MIN = -1000;
 const int STR_PWM_MAX = 1000;
-PID motor_str_pid(STR_PWM_MIN, STR_PWM_MAX, 70, 10.0, 25.0);
+PID motor_str_pid(STR_PWM_MIN, STR_PWM_MAX, 70, 10.0, 50.0);
 
 Kinematics kinematics(
-    Kinematics::LINO_BASE, 
-    MOTOR_MAX_RPM, 
-    MAX_RPM_RATIO, 
-    MOTOR_OPERATING_VOLTAGE, 
-    MOTOR_POWER_MAX_VOLTAGE, 
-    WHEEL_DIAMETER, 
-    LR_WHEELS_DISTANCE
-);
+    Kinematics::LINO_BASE,
+    MOTOR_MAX_RPM,
+    MAX_RPM_RATIO,
+    MOTOR_OPERATING_VOLTAGE,
+    MOTOR_POWER_MAX_VOLTAGE,
+    WHEEL_DIAMETER,
+    LR_WHEELS_DISTANCE);
 
 const int total_motors = 2;
 long long int counts_per_rev[total_motors];
@@ -75,71 +73,50 @@ long str_motor_enc_pos = 0;
 void setup()
 {
     Serial.begin(9600);
-    while (!Serial) {
+    while (!Serial)
+    {
     }
     Serial.println("Sampling process will spin the motors at its maximum RPM.");
     Serial.println("Please ensure that the robot is ELEVATED and there are NO OBSTRUCTIONS to the wheels.");
     Serial.println("");
     Serial.println("Type 'r' to spin the rear motors one at a time.");
     Serial.println("Type 's' to run steering control test.");
+    Serial.println("Type 'l' to find steering limits and center.");
     Serial.println("");
 
     pinMode(MOTOR_RELAY_PWR_OUT, OUTPUT);
     digitalWrite(MOTOR_RELAY_PWR_OUT, HIGH);
     pinMode(MOTOR_RELAY_PWR_IN, INPUT);
-
+    pinMode(STEER_LEFT_LIMIT_IN, INPUT_PULLUP);
 }
-
-static String cmd = "";
 
 void loop()
 {
     while (Serial.available())
     {
-        char character = Serial.read(); 
-        cmd.concat(character); 
+        char character = Serial.read();
         Serial.print(character);
         delay(1);
-        if(cmd.equals("r"))
+        if (character == 'r')
         {
-            cmd = "";
             Serial.println("\r\n");
             sampleMotors(1);
         }
-        else if (cmd.equals("s"))
+        else if (character == 's')
         {
-            cmd = "";
             Serial.println("\r\n");
-            testSteeringMotorControl();
+            testSteeringMotorControl(true);
         }
-        else if(character == '\r')
+        else if (character == 'l')
+        {
+            Serial.println("\r\n");
+            testAutoCenter();
+        }
+        else if (character == '\r')
         {
             Serial.println("");
-            cmd = "";
-        } else {
-            Serial.println("no");
         }
     }
-
-#if defined(PRINT_STEERING_ENC_STATUS)
-    bool show_enc_pos = false;
-    long newPosition = str_wheel_enc.read();
-    if (newPosition != str_wheel_enc_pos) {
-        str_wheel_enc_pos = newPosition;
-        show_enc_pos = true;
-    }
-    newPosition = str_motor_enc.read();
-    if (newPosition != str_motor_enc_pos) {
-        str_motor_enc_pos = newPosition;
-        show_enc_pos = true;
-    }
-    if (show_enc_pos) {
-        Serial.print("Steering enc: ");
-        Serial.print(str_wheel_enc_pos);
-        Serial.print(", ");
-        Serial.println(str_motor_enc_pos);
-    }
-#endif    
 }
 
 void sampleMotors(bool show_summary)
@@ -148,13 +125,12 @@ void sampleMotors(bool show_summary)
     float scaled_max_rpm = ((measured_voltage / MOTOR_OPERATING_VOLTAGE) * MOTOR_MAX_RPM);
     float total_rev = scaled_max_rpm * (SAMPLE_TIME / 60.0);
 
-
-    for(int i=0; i<total_motors; i++)
+    for (int i = 0; i < total_motors; i++)
     {
         encoders[i]->write(0);
-    }        
+    }
 
-    for(int i=0; i<total_motors; i++)
+    for (int i = 0; i < total_motors; i++)
     {
         Serial.print("SPINNING ");
         Serial.print(labels[i]);
@@ -163,16 +139,16 @@ void sampleMotors(bool show_summary)
         unsigned long last_status = micros();
 
         encoders[i]->write(0);
-        while(true)
+        while (true)
         {
-            if(micros() - start_time >= SAMPLE_TIME * ONE_SEC_IN_US)
+            if (micros() - start_time >= SAMPLE_TIME * ONE_SEC_IN_US)
             {
                 motors[i]->spin(0);
                 Serial.println("");
                 break;
             }
 
-            if(micros() - last_status >= ONE_SEC_IN_US)
+            if (micros() - last_status >= ONE_SEC_IN_US)
             {
                 last_status = micros();
                 Serial.print(".");
@@ -186,11 +162,11 @@ void sampleMotors(bool show_summary)
             Serial.println("\r\n");
         }
         Serial.println("Next motor");
-        
+
         counts_per_rev[i] = encoders[i]->read() / total_rev;
     }
     Serial.println("Finished");
-    if(show_summary)
+    if (show_summary)
         printSummary();
 }
 
@@ -214,9 +190,9 @@ void printSummary()
 
     Serial.println("====================MAX VELOCITIES====================");
     float max_rpm = kinematics.getMaxRPM();
-    
+
     Kinematics::velocities max_linear = kinematics.getVelocities(max_rpm, max_rpm, max_rpm, max_rpm);
-    Kinematics::velocities max_angular = kinematics.getVelocities(-max_rpm, max_rpm,-max_rpm, max_rpm);
+    Kinematics::velocities max_angular = kinematics.getVelocities(-max_rpm, max_rpm, -max_rpm, max_rpm);
 
     Serial.print("Linear Velocity: +- ");
     Serial.print(max_linear.linear_x);
@@ -232,16 +208,17 @@ void testSteeringMotor()
     int pwm = 800;
     unsigned long next_speed_chg = micros();
 
-    while(true)
+    while (true)
     {
-        if(micros() > next_speed_chg)
+        if (micros() > next_speed_chg)
         {
             pwm += 40;
-            if (pwm > 4000) {
+            if (pwm > 4000)
+            {
                 motor_str_controller.spin(0);
                 break;
             }
-            next_speed_chg = micros() + 5*ONE_SEC_IN_US;
+            next_speed_chg = micros() + 5 * ONE_SEC_IN_US;
             motor_str_controller.spin(pwm);
             Serial.print("Speed: ");
             Serial.print(pwm);
@@ -250,12 +227,17 @@ void testSteeringMotor()
     }
 }
 
-// Test steering control - simple non-pid algorithm
-void testSteeringMotorControl()
+const int LEFT_STEERING_LIMIT = 12;
+const int RIGHT_STEERING_LIMIT = -12;
+
+// Test steering control
+void testSteeringMotorControl(bool reset)
 {
-    str_wheel_enc.readAndReset();
-    str_motor_enc.readAndReset();
-    int dir = 0;
+    if (reset)
+    {
+        str_wheel_enc.readAndReset();
+        str_motor_enc.readAndReset();
+    }
 
     unsigned long next_update = 0;
     unsigned long next_status = 0;
@@ -267,84 +249,113 @@ void testSteeringMotorControl()
     long str_shaft_pos = 0;
     unsigned long now = 0;
 
-    int last_diff = 0;    
+    int last_diff = 0;
 
-    while(true)
+    while (true)
     {
         now = micros();
         update_ctrl = now > next_update;
         update_status = now > next_status;
 
-
         if (update_ctrl || update_status)
         {
-            str_whl_pos = -1*str_wheel_enc.read();
-            str_whl_pos = 2*str_whl_pos/3;
+            str_whl_pos = -1 * str_wheel_enc.read();
+            str_whl_pos = 2 * str_whl_pos / 3;
 
-            if (str_whl_pos > 22) {
-                str_whl_pos = 22;
-            } else if (str_whl_pos < -16) {
-                str_whl_pos  = -16;
+            if (str_whl_pos > LEFT_STEERING_LIMIT)
+            {
+                str_whl_pos = LEFT_STEERING_LIMIT;
+            }
+            else if (str_whl_pos < RIGHT_STEERING_LIMIT)
+            {
+                str_whl_pos = RIGHT_STEERING_LIMIT;
             }
 
             str_shaft_pos = str_motor_enc.read();
         }
 
-
         if (update_ctrl)
         {
-            next_update = now + 50*1000;
+            next_update = now + 50 * 1000;
 
-#if defined(STEERING_PID)
             int new_diff = str_shaft_pos - str_whl_pos;
-            if (sgn(last_diff) != sgn(new_diff)) {
+            if (sgn(last_diff) != sgn(new_diff))
+            {
                 motor_str_controller.spin(0);
                 motor_str_pid.reset();
-                next_update = now + 50*1000;
-            } else {
-                int whl_pos = abs(new_diff) > 1? str_whl_pos: str_shaft_pos;
+                next_update = now + 50 * 1000;
+            }
+            else
+            {
+                int whl_pos = abs(new_diff) > 1 ? str_whl_pos : str_shaft_pos;
                 int new_pwm = motor_str_pid.compute(whl_pos, str_shaft_pos, false);
                 motor_str_controller.spin(new_pwm);
-                if (new_pwm != 0) {
+                if (new_pwm != 0)
+                {
                     Serial.println(new_pwm);
                 }
             }
             last_diff = new_diff;
-#else
-            long diff = str_shaft_pos - str_whl_pos;
-            if (diff > 1) {
-                if (dir > 0) {
-                    motor_str_controller.spin(0);
-                    delayMicroseconds(50000);
-                }
-                dir = -1;
-                motor_str_controller.spin(abs(diff) > 3? -1000: -500);
-                Serial.print("< ");
-                Serial.println(diff);
-            } else if (diff < -1) {
-                if (dir < 0) {
-                    motor_str_controller.spin(0);
-                    delayMicroseconds(50000);
-                }
-                dir = 1;
-                motor_str_controller.spin(abs(diff) > 3? 1000: 500);
-                Serial.print("> ");
-                Serial.println(diff);
-            } else {
-                motor_str_controller.spin(0);
-                delayMicroseconds(50000);
-                dir = 0;
-            }
-#endif            
         }
 
         if (update_status || update_ctrl)
         {
-            next_status = now + 500*1000;
+            next_status = now + 500 * 1000;
             Serial.print("      StrWhl: ");
             Serial.print(str_whl_pos);
             Serial.print("      StrShaft: ");
             Serial.println(str_shaft_pos);
         }
     }
+}
+
+void testAutoCenter()
+{
+    str_motor_enc.readAndReset();
+
+    unsigned long next_update = 0;
+    unsigned long next_status = 0;
+    unsigned long now = 0;
+
+    int test_pos = 0;
+
+    while (true)
+    {
+        now = micros();
+        if (now > next_update)
+        {
+            next_update = now + 50 * 1000;
+            int str_shaft_pos = str_motor_enc.read();
+
+            if (digitalRead(STEER_LEFT_LIMIT_IN) == 0)
+            {
+                Serial.println("At left limit");
+                break;
+            }
+
+            int diff = test_pos - str_shaft_pos;
+
+            if (now > next_status)
+            {
+                next_status = now + 750 * 1000;
+                Serial.print("Checking\n\r  Test: ");
+                Serial.print(test_pos);
+                Serial.print(", actual: ");
+                Serial.print(str_shaft_pos);
+                Serial.print(", diff: ");
+                Serial.println(diff);
+            }
+            if (diff <= 0)
+            {
+                test_pos++;
+            }
+            int pwm = motor_str_pid.compute(test_pos, str_shaft_pos, false);
+            motor_str_controller.spin(pwm);
+            Serial.print("PWM ");
+            Serial.println(pwm);
+        }
+    }
+    str_wheel_enc.readAndReset();
+    str_motor_enc.write(LEFT_STEERING_LIMIT);
+    testSteeringMotorControl(false);
 }
