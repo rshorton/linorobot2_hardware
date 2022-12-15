@@ -93,7 +93,6 @@ void setup()
     digitalWrite(MOTOR_RELAY_PWR_OUT, HIGH);
     pinMode(MOTOR_RELAY_PWR_IN, INPUT);
     pinMode(STEER_LEFT_LIMIT_IN, INPUT_PULLUP);
-
 }
 
 void loop()
@@ -211,7 +210,8 @@ void printSummary()
 
 void testSteering(bool external)
 {
-    if (steering.get_state() == Steering::State::kInit) {
+    if (steering.get_state() == Steering::State::kInit)
+    {
         Serial.println("Homing the steering control...");
         steering.home();
         while (steering.get_state() == Steering::State::kHoming)
@@ -220,20 +220,24 @@ void testSteering(bool external)
         }
     }
 
-    if (steering.get_state() != Steering::State::kWheel) {
+    if (steering.get_state() != Steering::State::kWheel)
+    {
         Serial.println("Error, expected steering to be homed");
         return;
     }
     Serial.println("Steering homed");
 
-    if (external) {
-        if (!steering.enable_external_control()) {
+    if (external)
+    {
+        if (!steering.enable_external_control())
+        {
             Serial.println("Error, failed to enable external steering control");
             return;
         }
         Serial.println("Enabled external control.  Press 'l' or 'r' to change the steering.  Press 'e' continue...");
 
-        while (true) {
+        while (true)
+        {
             if (Serial.available())
             {
                 char character = Serial.read();
@@ -254,14 +258,16 @@ void testSteering(bool external)
                 }
                 if (delta != 0)
                 {
-                    if (!steering.set_position(steering.get_position() + delta)) {
+                    if (!steering.set_position(steering.get_position() + delta))
+                    {
                         Serial.println("Error, failed to set steering position");
                     }
-                }                    
+                }
             }
             steering.update();
         }
-        if (!steering.enable_steering_wheel()) {
+        if (!steering.enable_steering_wheel())
+        {
             Serial.println("Error, failed to enable steering wheel control");
             return;
         }
@@ -269,7 +275,7 @@ void testSteering(bool external)
 
     Serial.println("Steering wheel control mode enabled.  Turn the steering wheel to change steering...");
 
-    while(true)
+    while (true)
     {
         steering.update();
     }
