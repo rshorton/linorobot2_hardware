@@ -72,7 +72,7 @@ ROBOT ORIENTATION
 // INVERT MOTOR DIRECTIONS
 #define MOTOR1_INV false
 #define MOTOR2_INV false
-#define MOTOR_STR_INV true
+#define MOTOR_STR_INV false
 
 // ENCODER PINS
 // Only one Hall effect sensor for detecting rate, but not direction for wheel motors

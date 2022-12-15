@@ -24,18 +24,21 @@
 #include "kinematics.h"
 #include "pid.h"
 #include "util.h"
+#include "steering.h"
 
 #define SAMPLE_TIME 8 // s
 #define ONE_SEC_IN_US 1000000
+
+const int STEERING_FULL_RANGE = 28;
 
 int m1_dir_status = 0;
 int m2_dir_status = 0;
 int mstr_dir_status = 0;
 
 // Steering wheel encoder
-Encoder str_wheel_enc(STEERWHL_ENCODER_A, STEERWHL_ENCODER_B, 1);
+Encoder str_wheel_enc(STEERWHL_ENCODER_A, STEERWHL_ENCODER_B, 1, false);
 // Steering motor/shaft encoder
-Encoder str_motor_enc(STEERMTR_ENCODER_A, STEERMTR_ENCODER_B, 1);
+Encoder str_motor_enc(STEERMTR_ENCODER_A, STEERMTR_ENCODER_B, 1, true);
 
 // Rear wheel pulse counter
 EncoderNone motor1_encoder(MOTOR1_ENCODER_A, MOTOR1_ENCODER_B, COUNTS_PER_REV1, MOTOR1_ENCODER_INV, &m1_dir_status);
@@ -50,7 +53,9 @@ Motor motor_str_controller(PWM_FREQUENCY, PWM_BITS, MOTOR_STR_INV, MOTOR_STR_PWM
 
 const int STR_PWM_MIN = -1000;
 const int STR_PWM_MAX = 1000;
-PID motor_str_pid(STR_PWM_MIN, STR_PWM_MAX, 70, 10.0, 50.0);
+PID motor_str_pid(STR_PWM_MIN, STR_PWM_MAX, 40, 10.0, 50.0);
+
+Steering steering(STEER_LEFT_LIMIT_IN, STEERING_FULL_RANGE, 1.5, motor_str_controller, str_motor_enc, str_wheel_enc, motor_str_pid);
 
 Kinematics kinematics(
     Kinematics::LINO_BASE,
@@ -81,13 +86,14 @@ void setup()
     Serial.println("");
     Serial.println("Type 'r' to spin the rear motors one at a time.");
     Serial.println("Type 's' to run steering control test.");
-    Serial.println("Type 'l' to find steering limits and center.");
+    Serial.println("Type 'e' to run external steering control test.");
     Serial.println("");
 
     pinMode(MOTOR_RELAY_PWR_OUT, OUTPUT);
     digitalWrite(MOTOR_RELAY_PWR_OUT, HIGH);
     pinMode(MOTOR_RELAY_PWR_IN, INPUT);
     pinMode(STEER_LEFT_LIMIT_IN, INPUT_PULLUP);
+
 }
 
 void loop()
@@ -105,12 +111,12 @@ void loop()
         else if (character == 's')
         {
             Serial.println("\r\n");
-            testSteeringMotorControl(true);
+            testSteering(false);
         }
-        else if (character == 'l')
+        else if (character == 'e')
         {
             Serial.println("\r\n");
-            testAutoCenter();
+            testSteering(true);
         }
         else if (character == '\r')
         {
@@ -203,195 +209,68 @@ void printSummary()
     Serial.println(" rad/s");
 }
 
-void testSteeringMotor()
+void testSteering(bool external)
 {
-    int pwm = 800;
-    unsigned long next_speed_chg = micros();
-
-    while (true)
-    {
-        if (micros() > next_speed_chg)
+    if (steering.get_state() == Steering::State::kInit) {
+        Serial.println("Homing the steering control...");
+        steering.home();
+        while (steering.get_state() == Steering::State::kHoming)
         {
-            pwm += 40;
-            if (pwm > 4000)
-            {
-                motor_str_controller.spin(0);
-                break;
-            }
-            next_speed_chg = micros() + 5 * ONE_SEC_IN_US;
-            motor_str_controller.spin(pwm);
-            Serial.print("Speed: ");
-            Serial.print(pwm);
-            Serial.println("");
+            steering.update();
         }
     }
-}
 
-const int LEFT_STEERING_LIMIT = 14;
-const int RIGHT_STEERING_LIMIT = -14;
-
-// Test steering control
-void testSteeringMotorControl(bool reset)
-{
-    if (reset)
-    {
-        str_wheel_enc.readAndReset();
-        str_motor_enc.readAndReset();
+    if (steering.get_state() != Steering::State::kWheel) {
+        Serial.println("Error, expected steering to be homed");
+        return;
     }
+    Serial.println("Steering homed");
 
-    unsigned long next_update = 0;
-    unsigned long next_status = 0;
-
-    bool update_ctrl = false;
-    bool update_status = false;
-
-    long str_whl_pos = 0;
-    long str_shaft_pos = 0;
-    unsigned long now = 0;
-
-    int last_diff = 0;
-
-    while (true)
-    {
-        now = micros();
-        update_ctrl = now > next_update;
-        update_status = now > next_status;
-
-        if (update_ctrl || update_status)
-        {
-            str_whl_pos = -1 * str_wheel_enc.read();
-            str_whl_pos = 2 * str_whl_pos / 3;
-
-            if (str_whl_pos > LEFT_STEERING_LIMIT)
-            {
-                str_whl_pos = LEFT_STEERING_LIMIT;
-            }
-            else if (str_whl_pos < RIGHT_STEERING_LIMIT)
-            {
-                str_whl_pos = RIGHT_STEERING_LIMIT;
-            }
-
-            str_shaft_pos = str_motor_enc.read();
+    if (external) {
+        if (!steering.enable_external_control()) {
+            Serial.println("Error, failed to enable external steering control");
+            return;
         }
+        Serial.println("Enabled external control.  Press 'l' or 'r' to change the steering.  Press 'e' continue...");
 
-        if (update_ctrl)
-        {
-            next_update = now + 50 * 1000;
-
-            int new_diff = str_shaft_pos - str_whl_pos;
-            if (sgn(last_diff) != sgn(new_diff))
+        while (true) {
+            if (Serial.available())
             {
-                motor_str_controller.spin(0);
-                motor_str_pid.reset();
-                next_update = now + 50 * 1000;
-            }
-            else
-            {
-                int whl_pos = abs(new_diff) > 1 ? str_whl_pos : str_shaft_pos;
-                int new_pwm = motor_str_pid.compute(whl_pos, str_shaft_pos, false);
-                motor_str_controller.spin(new_pwm);
-                if (new_pwm != 0)
+                char character = Serial.read();
+                Serial.print(character);
+                delay(1);
+                int8_t delta = 0;
+                if (character == 'l')
                 {
-                    Serial.println(new_pwm);
+                    delta = -1;
                 }
+                else if (character == 'r')
+                {
+                    delta = 1;
+                }
+                else if (character == 'e')
+                {
+                    break;
+                }
+                if (delta != 0)
+                {
+                    if (!steering.set_position(steering.get_position() + delta)) {
+                        Serial.println("Error, failed to set steering position");
+                    }
+                }                    
             }
-            last_diff = new_diff;
+            steering.update();
         }
-
-        if (update_status || update_ctrl)
-        {
-            next_status = now + 500 * 1000;
-            Serial.print("      StrWhl: ");
-            Serial.print(str_whl_pos);
-            Serial.print("      StrShaft: ");
-            Serial.println(str_shaft_pos);
+        if (!steering.enable_steering_wheel()) {
+            Serial.println("Error, failed to enable steering wheel control");
+            return;
         }
     }
-}
 
-void testAutoCenter()
-{
-    str_motor_enc.readAndReset();
+    Serial.println("Steering wheel control mode enabled.  Turn the steering wheel to change steering...");
 
-    unsigned long next_update = 0;
-    unsigned long next_status = 0;
-    unsigned long now = 0;
-
-    int next_pos = 0;
-
-    while (true)
+    while(true)
     {
-        now = micros();
-        if (now > next_update)
-        {
-            next_update = now + 50 * 1000;
-            int str_shaft_pos = str_motor_enc.read();
-
-            if (digitalRead(STEER_LEFT_LIMIT_IN) == 0)
-            {
-                Serial.println("At left limit");
-                break;
-            }
-
-            int diff = next_pos - str_shaft_pos;
-
-            if (now > next_status)
-            {
-                next_status = now + 750 * 1000;
-                Serial.print("Checking\n\r  Test: ");
-                Serial.print(next_pos);
-                Serial.print(", actual: ");
-                Serial.print(str_shaft_pos);
-                Serial.print(", diff: ");
-                Serial.println(diff);
-            }
-            if (diff <= 0)
-            {
-                next_pos++;
-            }
-            int pwm = motor_str_pid.compute(next_pos, str_shaft_pos, false);
-            motor_str_controller.spin(pwm);
-            Serial.print("PWM ");
-            Serial.println(pwm);
-        }
+        steering.update();
     }
-    str_wheel_enc.readAndReset();
-    str_motor_enc.write(LEFT_STEERING_LIMIT);
-    next_pos = str_motor_enc.read();
-
-    while (true)
-    {
-        now = micros();
-        if (now > next_update)
-        {
-            next_update = now + 50 * 1000;
-            int str_shaft_pos = str_motor_enc.read();
-
-            if (str_shaft_pos <= 0) {
-                break;
-            }
-
-            int diff = next_pos - str_shaft_pos;
-
-            if (now > next_status)
-            {
-                next_status = now + 750 * 1000;
-                Serial.print("Checking\n\r  Test: ");
-                Serial.print(next_pos);
-                Serial.print(", actual: ");
-                Serial.print(str_shaft_pos);
-                Serial.print(", diff: ");
-                Serial.println(diff);
-            }
-            if (diff >= 0)
-            {
-                next_pos--;
-            }
-            int pwm = motor_str_pid.compute(next_pos, str_shaft_pos, false);
-            motor_str_controller.spin(pwm);
-            Serial.print("PWM ");
-            Serial.println(pwm);
-        }
-    }
-    testSteeringMotorControl(false);
 }
