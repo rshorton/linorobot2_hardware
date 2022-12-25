@@ -186,8 +186,14 @@ ROBOT ORIENTATION
 #define MOTOR_RELAY_PWR_IN  7
 
 // Misc Inputs
-#define FORW_REV_SW_IN      4   // Active ?? when in up position
-#define ACCEL_SW_IN         5   // Active low when pressed
-#define IGN_SW_IN           10  // Active low switch input
+#define FORW_REV_SW_IN      32  // Active hi (forw) down position
+#define ACCEL_SW_IN         5   // Active low (when pressed)
+#define ACCEL_LEVEL_IN      A17 // Accelerator level ~2.5 (none)-> ~0(max)
+#define IGN_SW_IN           10  // Active hi (switch pressed)
 #define STEER_LEFT_LIMIT_IN 3   // Active low left limit Hall sensor
+#define ESTOP_IN            7   // Active low (estop pressed or rf sw off)
+
+#define IIC_ADDR_INA226_CTRL_BAT    0x40
+#define IIC_ADDR_INA226_DRIVE_BAT   0x41
+
 #endif

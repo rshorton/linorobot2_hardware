@@ -25,6 +25,7 @@
 #include "pid.h"
 #include "util.h"
 #include "steering.h"
+#include "INA226.h"
 
 #define SAMPLE_TIME 8 // s
 #define ONE_SEC_IN_US 1000000
@@ -57,6 +58,9 @@ PID motor_str_pid(STR_PWM_MIN, STR_PWM_MAX, 40, 10.0, 50.0);
 
 Steering steering(STEER_LEFT_LIMIT_IN, STEERING_FULL_RANGE, 1.5, motor_str_controller, str_motor_enc, str_wheel_enc, motor_str_pid);
 
+INA226 pwr_mon_ctrl_bat;
+INA226 pwr_mon_drive_bat;
+
 Kinematics kinematics(
     Kinematics::LINO_BASE,
     MOTOR_MAX_RPM,
@@ -81,18 +85,28 @@ void setup()
     while (!Serial)
     {
     }
-    Serial.println("Sampling process will spin the motors at its maximum RPM.");
-    Serial.println("Please ensure that the robot is ELEVATED and there are NO OBSTRUCTIONS to the wheels.");
     Serial.println("");
-    Serial.println("Type 'r' to spin the rear motors one at a time.");
-    Serial.println("Type 's' to run steering control test.");
-    Serial.println("Type 'e' to run external steering control test.");
+    Serial.println("'r'    spin the rear motors one at a time.");
+    Serial.println("'s'    run steering control test.");
+    Serial.println("'e'    run external steering control test.");
+    Serial.println("'a'    run accelerator pedal test.");
+    Serial.println("enter  print input status.");
     Serial.println("");
 
     pinMode(MOTOR_RELAY_PWR_OUT, OUTPUT);
     digitalWrite(MOTOR_RELAY_PWR_OUT, HIGH);
     pinMode(MOTOR_RELAY_PWR_IN, INPUT);
     pinMode(STEER_LEFT_LIMIT_IN, INPUT_PULLUP);
+    pinMode(ACCEL_SW_IN, INPUT_PULLUP);
+    pinMode(FORW_REV_SW_IN, INPUT_PULLUP);
+    pinMode(ESTOP_IN, INPUT_PULLUP);
+
+    pwr_mon_ctrl_bat.begin(IIC_ADDR_INA226_CTRL_BAT);
+    pwr_mon_ctrl_bat.configure();
+    pwr_mon_ctrl_bat.calibrate(0.1, 4);
+    pwr_mon_drive_bat.begin(IIC_ADDR_INA226_DRIVE_BAT);
+    pwr_mon_drive_bat.configure();
+    pwr_mon_drive_bat.calibrate(0.1, 20);
 }
 
 void loop()
@@ -117,9 +131,32 @@ void loop()
             Serial.println("\r\n");
             testSteering(true);
         }
+        else if (character == 'a')
+        {
+            Serial.println("\r\n");
+            testAccelerator();
+        }
         else if (character == '\r')
         {
-            Serial.println("");
+            // Read various inputs
+            Serial.print("Estop: ");
+            Serial.print(digitalRead(ESTOP_IN));
+            Serial.print(", Ign sw: ");
+            Serial.print(digitalRead(IGN_SW_IN));
+            Serial.print(", Acc (sw, level): ");
+            Serial.print(digitalRead(ACCEL_SW_IN));
+            Serial.print(", ");
+            Serial.print(analogRead(ACCEL_LEVEL_IN));
+            Serial.print(", Fwrd/rev sw: ");
+            Serial.print(digitalRead(FORW_REV_SW_IN));
+            Serial.print(", DriveBat (V,I): ");
+            Serial.print(pwr_mon_drive_bat.readBusVoltage());
+            Serial.print(", ");
+            Serial.print(pwr_mon_drive_bat.readShuntCurrent());
+            Serial.print(", CtrlBat (V:I): ");
+            Serial.print(pwr_mon_ctrl_bat.readBusVoltage());
+            Serial.print(", ");
+            Serial.print(pwr_mon_ctrl_bat.readShuntCurrent());
         }
     }
 }
@@ -278,5 +315,78 @@ void testSteering(bool external)
     while (true)
     {
         steering.update();
+    }
+}
+
+int ACCEL_UPDATE = ONE_SEC_IN_US / 10;
+int ACCEL_UPDATE_AFTER_DIR_CHANGE = ONE_SEC_IN_US * 1;
+int MAX_ACCEL_IN = 750;
+int MIN_ACCEL_IN = 300;
+
+void testAccelerator()
+{
+    unsigned long last_update = 0;
+    int update_period = ACCEL_UPDATE;
+    int last_dir = 0;
+
+    while (true)
+    {
+        if ((long int)(micros() - last_update) >= update_period)
+        {
+            last_update = micros();
+            update_period = ACCEL_UPDATE;
+
+            int accel_sw = digitalRead(ACCEL_SW_IN);
+            int dir = digitalRead(FORW_REV_SW_IN);
+            if (!dir)
+            {
+                dir = -1;
+            }
+            if (dir != last_dir)
+            {
+                Serial.print("New direction ");
+                Serial.println(dir);
+                last_dir = dir;
+                dir = 0;
+                update_period = ACCEL_UPDATE_AFTER_DIR_CHANGE;
+            }
+
+            int level_raw = analogRead(ACCEL_LEVEL_IN);
+            int level = level_raw;
+            if (level < MIN_ACCEL_IN)
+            {
+                level = MIN_ACCEL_IN;
+            }
+            else if (level > MAX_ACCEL_IN)
+            {
+                level = MAX_ACCEL_IN;
+            }
+            float level_scaled = (float)(MAX_ACCEL_IN - level) / (float)abs(MAX_ACCEL_IN - MIN_ACCEL_IN);
+
+            float pwm = 0;
+            if (!accel_sw)
+            {
+                pwm = level_scaled * 400;
+            }
+            else
+            {
+                pwm = 0;
+            }
+            pwm *= dir;
+            motors[0]->spin(pwm);
+            motors[1]->spin(pwm);
+
+            Serial.print(dir);
+            Serial.print(" ");
+            Serial.print(accel_sw);
+            Serial.print(" ");
+            Serial.print(level_raw);
+            Serial.print(" ");
+            Serial.print(level);
+            Serial.print(" ");
+            Serial.print(level_scaled);
+            Serial.print(" ");
+            Serial.println((int)pwm);
+        }
     }
 }
