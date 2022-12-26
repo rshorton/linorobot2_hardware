@@ -11,13 +11,21 @@ See https://github.com/linorobot/linorobot2_hardware for the official readme inf
 
 The Elsabot Jeep base:
 
+Phase 1
 * Used PowerWheels Jeep chassis
 * Existing rear 12V gearbox motors modified with magnets and a Hall sensor for measuring rotational speed
 * BTS7960 motor drivers
 * Front steering modified to use PowerWheels steering motor with independent steering wheel shaft with encoder and motor-driver steering shaft with encoder
 * GY85 IMU
 * 2-18V Ryobi batteries: 1 for uC and CPU and 1 for powering motors
+* 2-INA226 power monitor ICs
 * Teensy 4.1 uC
+* 4 port USB hub
+* 433 MHz remote control relay
+* Motor power relay
+* RPi4
+
+Phase 2
 * Seeed odyssey j4125 CPU
 * RPLidar A1
 * OAK-D camera with and pan and tilt servos
@@ -26,8 +34,7 @@ The Elsabot Jeep base:
 * Seeed ReSpeaker USB Mic Array
 * Various DC-to-DC converters
 * 10-port USB hub
-* 433 MHz remote control relay
-* Motor power relay
+* GPS
 
 TBD:
 See this project for the ROS2 bring-up scripts:
