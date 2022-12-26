@@ -25,7 +25,7 @@ Phase 1
 * Motor power relay
 * RPi4
 
-Phase 2
+Phase 2 (future)
 * Seeed odyssey j4125 CPU
 * RPLidar A1
 * OAK-D camera with and pan and tilt servos
