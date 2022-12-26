@@ -5,21 +5,25 @@
 #include "steering.h"
 #include "util.h"
 
+#undef DEBUG_PRINTS
+
 namespace
 {
     const long DEF_UPDATE_PERIOD_MS = 50;
 }
 
-Steering::Steering(uint8_t pin_left_limit_in, uint8_t full_range, float wheel_scale_factor, MotorInterface &motor,
+Steering::Steering(uint8_t pin_left_limit_in, uint8_t full_range_steps, uint8_t full_range_deg, float wheel_scale_factor, MotorInterface &motor,
                    Encoder &enc_shaft, Encoder &enc_wheel, PID &pid) : pin_left_limit_in_(pin_left_limit_in),
-                                                                       limit_left_(-full_range / 2),
-                                                                       limit_right_(full_range / 2),
+                                                                       limit_left_(-full_range_steps / 2),
+                                                                       limit_right_(full_range_steps / 2),
+                                                                       steps_per_deg_((float)full_range_steps/(float)full_range_deg),
                                                                        wheel_scale_factor_(wheel_scale_factor),
                                                                        motor_(motor),
                                                                        enc_shaft_(enc_shaft),
                                                                        enc_wheel_(enc_wheel),
                                                                        pid_(pid),
                                                                        main_state_(State::kInit),
+                                                                       shaft_pos_(0),
                                                                        homing_state_(HomingState::kInit),
                                                                        homed_(false),
                                                                        target_pos_(0),
@@ -81,15 +85,28 @@ bool Steering::enable_external_control()
     return true;
 }
 
-bool Steering::set_position(int8_t target_pos)
+int8_t Steering::set_position(int8_t target_pos)
 {
     if (main_state_ == State::kExternal &&
         target_pos >= limit_left_ && target_pos <= limit_right_)
     {
         target_pos_ = target_pos;
-        return true;
     }
-    return false;
+    return target_pos_;
+}
+
+float Steering::set_position_deg(float target_pos_deg)
+{
+    if (main_state_ == State::kExternal) {
+        int8_t steps = target_pos_deg*steps_per_deg_;
+        if (steps < limit_left_) {
+            steps = limit_left_;
+        } else if (steps > limit_right_) {
+            steps = limit_right_;
+        }            
+        target_pos_ = steps;
+    }
+    return target_pos_;
 }
 
 // Steering wheel position is scaled to allow a larger turning range
@@ -128,7 +145,9 @@ long Steering::homing_state_machine()
 
         if (digitalRead(pin_left_limit_in_) == 0)
         {
+#if defined(DEBUG_PRINTS)            
             Serial.println("Steering at left limit");
+#endif            
             motor_.spin(0);
             enc_shaft_.write(limit_left_);            
             homing_state_ = HomingState::kCentering;
@@ -140,16 +159,20 @@ long Steering::homing_state_machine()
         {
             target_pos_--;
             if (target_pos_ < 2*limit_left_ - 1) {
+#if defined(DEBUG_PRINTS)            
                 Serial.println("Error, failed to find left limit");
+#endif                
                 motor_.spin(0);
                 homing_failed();
             }
+#if defined(DEBUG_PRINTS)            
             Serial.print("Set pos: ");
             Serial.print(target_pos_);
             Serial.print(", actual: ");
             Serial.print(shaft_pos);
             Serial.print(", diff: ");
             Serial.println(diff);
+#endif            
         }
 
         int pwm = pid_.compute(target_pos_, shaft_pos, false);
@@ -163,7 +186,9 @@ long Steering::homing_state_machine()
         int shaft_pos = enc_shaft_.read();
         if (shaft_pos >= 0)
         {
+#if defined(DEBUG_PRINTS)            
             Serial.println("Steering at center");
+#endif            
             motor_.spin(0);
             set_wheel_pos(shaft_pos);
             homing_state_ = HomingState::kFinished;
@@ -174,12 +199,14 @@ long Steering::homing_state_machine()
         if (diff <= 0)
         {
             target_pos_++;
+#if defined(DEBUG_PRINTS)            
             Serial.print("Set pos: ");
             Serial.print(target_pos_);
             Serial.print(", shaft_pos: ");
             Serial.print(shaft_pos);
             Serial.print(", diff: ");
             Serial.println(diff);
+#endif            
         }
         int pwm = pid_.compute(target_pos_, shaft_pos, false);
         motor_.spin(pwm);
@@ -224,8 +251,10 @@ long Steering::steering_wheel_update()
 {
     int8_t pos = get_wheel_pos();
     if (pos != target_pos_) {
+#if defined(DEBUG_PRINTS)            
         Serial.print("Set wheel pos: ");
         Serial.println(target_pos_);
+#endif        
         target_pos_ = pos;
     }
     return apply_position();
@@ -245,6 +274,7 @@ void Steering::update()
     {
         return;
     }
+    shaft_pos_ = enc_shaft_.read();
 
     unsigned long next_update_delta = DEF_UPDATE_PERIOD_MS;
 

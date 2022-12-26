@@ -25,12 +25,12 @@
 #include "pid.h"
 #include "util.h"
 #include "steering.h"
+#include "accel_pedal.h"
 #include "INA226.h"
 
 #define SAMPLE_TIME 8 // s
 #define ONE_SEC_IN_US 1000000
-
-const int STEERING_FULL_RANGE = 28;
+#define ONE_SEC_IN_MS 1000
 
 int m1_dir_status = 0;
 int m2_dir_status = 0;
@@ -49,6 +49,9 @@ EncoderNone motor2_encoder(MOTOR2_ENCODER_A, MOTOR2_ENCODER_B, COUNTS_PER_REV2, 
 Motor motor1_controller(PWM_FREQUENCY, PWM_BITS, MOTOR1_INV, MOTOR1_PWM, MOTOR1_IN_A, MOTOR1_IN_B, &m1_dir_status);
 Motor motor2_controller(PWM_FREQUENCY, PWM_BITS, MOTOR2_INV, MOTOR2_PWM, MOTOR2_IN_A, MOTOR2_IN_B, &m2_dir_status);
 
+PID motor1_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
+PID motor2_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
+
 // Steering motor
 Motor motor_str_controller(PWM_FREQUENCY, PWM_BITS, MOTOR_STR_INV, MOTOR_STR_PWM, MOTOR_STR_IN_A, MOTOR_STR_IN_B, &mstr_dir_status);
 
@@ -56,7 +59,10 @@ const int STR_PWM_MIN = -1000;
 const int STR_PWM_MAX = 1000;
 PID motor_str_pid(STR_PWM_MIN, STR_PWM_MAX, 40, 10.0, 50.0);
 
-Steering steering(STEER_LEFT_LIMIT_IN, STEERING_FULL_RANGE, 1.5, motor_str_controller, str_motor_enc, str_wheel_enc, motor_str_pid);
+Steering steering(STEER_LEFT_LIMIT_IN, STEERING_FULL_RANGE_STEPS, STEERING_FULL_RANGE_DEG, 1.5,
+                  motor_str_controller, str_motor_enc, str_wheel_enc, motor_str_pid);
+
+AccelPedal accel_pedal(ACCEL_SW_IN, 0, ACCEL_LEVEL_IN, MIN_ACCEL_IN, MAX_ACCEL_IN, ONE_SEC_IN_MS/20, 0.5);
 
 INA226 pwr_mon_ctrl_bat;
 INA226 pwr_mon_drive_bat;
@@ -68,6 +74,7 @@ Kinematics kinematics(
     MOTOR_OPERATING_VOLTAGE,
     MOTOR_POWER_MAX_VOLTAGE,
     WHEEL_DIAMETER,
+    FR_WHEELS_DISTANCE,
     LR_WHEELS_DISTANCE);
 
 const int total_motors = 2;
@@ -318,75 +325,46 @@ void testSteering(bool external)
     }
 }
 
-int ACCEL_UPDATE = ONE_SEC_IN_US / 10;
-int ACCEL_UPDATE_AFTER_DIR_CHANGE = ONE_SEC_IN_US * 1;
-int MAX_ACCEL_IN = 750;
-int MIN_ACCEL_IN = 300;
+bool directionChange(float cur_rpm, float req_rpm)
+{
+    return abs(cur_rpm) > 0.1 && sgn(cur_rpm) != sgn(req_rpm);
+}
 
 void testAccelerator()
 {
     unsigned long last_update = 0;
-    int update_period = ACCEL_UPDATE;
-    int last_dir = 0;
 
-    while (true)
-    {
-        if ((long int)(micros() - last_update) >= update_period)
+    while (true) {
+        accel_pedal.update();
+
+        if ((long int)(millis() - last_update) >= 100)
         {
-            last_update = micros();
-            update_period = ACCEL_UPDATE;
+            float level = accel_pedal.get_level();
 
-            int accel_sw = digitalRead(ACCEL_SW_IN);
-            int dir = digitalRead(FORW_REV_SW_IN);
-            if (!dir)
-            {
-                dir = -1;
+            int8_t dir = digitalRead(FORW_REV_SW_IN);
+            if (!dir) {
+                level *= -1;
             }
-            if (dir != last_dir)
-            {
-                Serial.print("New direction ");
-                Serial.println(dir);
-                last_dir = dir;
-                dir = 0;
-                update_period = ACCEL_UPDATE_AFTER_DIR_CHANGE;
-            }
+            float req_rpm = level * MAX_MANUAL_RPM;
 
-            int level_raw = analogRead(ACCEL_LEVEL_IN);
-            int level = level_raw;
-            if (level < MIN_ACCEL_IN)
-            {
-                level = MIN_ACCEL_IN;
-            }
-            else if (level > MAX_ACCEL_IN)
-            {
-                level = MAX_ACCEL_IN;
-            }
-            float level_scaled = (float)(MAX_ACCEL_IN - level) / (float)abs(MAX_ACCEL_IN - MIN_ACCEL_IN);
+            float current_rpm1 = motor1_encoder.getRPM();
+            float current_rpm2 = motor2_encoder.getRPM();
 
-            float pwm = 0;
-            if (!accel_sw)
-            {
-                pwm = level_scaled * 400;
+            // Don't drive motor in the opposite direction until it stops
+            if (directionChange(current_rpm1, req_rpm)) {
+                req_rpm = 0.0;
             }
-            else
-            {
-                pwm = 0;
-            }
-            pwm *= dir;
-            motors[0]->spin(pwm);
-            motors[1]->spin(pwm);
+            motor1_controller.spin(motor1_pid.compute(req_rpm, current_rpm1));
+            motor2_controller.spin(motor2_pid.compute(req_rpm, current_rpm2));        
 
+            last_update = millis();
+
+            Serial.print("Dir sw: ");
             Serial.print(dir);
-            Serial.print(" ");
-            Serial.print(accel_sw);
-            Serial.print(" ");
-            Serial.print(level_raw);
-            Serial.print(" ");
+            Serial.print(", accel level: ");
             Serial.print(level);
-            Serial.print(" ");
-            Serial.print(level_scaled);
-            Serial.print(" ");
-            Serial.println((int)pwm);
+            Serial.print(", req_rpm: ");
+            Serial.println(req_rpm);
         }
     }
 }

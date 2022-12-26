@@ -28,7 +28,7 @@ public:
     };
 
 public:
-    Steering(uint8_t pin_left_limit_in, uint8_t full_range, float wheel_scale_factor, MotorInterface &motor,
+    Steering(uint8_t pin_left_limit_in, uint8_t full_range_steps, uint8_t full_range_deg, float wheel_scale_factor, MotorInterface &motor,
              Encoder &enc_shaft, Encoder &enc_wheel, PID &pid);
 
     State get_state() const;
@@ -39,9 +39,15 @@ public:
     bool enable_external_control();
 
     int8_t get_position() const { return target_pos_; }
-    bool set_position(int8_t target_pos);
+    int8_t set_position(int8_t target_pos);
     int8_t get_left_pos() const { return limit_left_; }
     int8_t get_right_pos() const { return limit_right_; }
+
+    float get_position_deg() const { return (float)target_pos_/steps_per_deg_; }
+    float set_position_deg(float target_pos_deg);
+
+    int8_t get_actual_pos() const { return shaft_pos_; }
+    int8_t get_actual_pos_deg() const { return (float)shaft_pos_/steps_per_deg_; }
 
     void update();
 
@@ -61,6 +67,7 @@ private:
     uint8_t pin_left_limit_in_;
     int8_t limit_left_;
     int8_t limit_right_;
+    float steps_per_deg_;
     float wheel_scale_factor_;
 
     MotorInterface &motor_;
@@ -69,6 +76,7 @@ private:
     PID &pid_;
 
     State main_state_;
+    int8_t shaft_pos_;
     HomingState homing_state_;
 
     bool homed_;

@@ -51,19 +51,28 @@ ROBOT ORIENTATION
 */
 
 //define your robot' specs here
-#define MOTOR_MAX_RPM 186                  // motor's max RPM          
-#define MAX_RPM_RATIO 0.95                 // max RPM allowed for each MAX_RPM_ALLOWED = MOTOR_MAX_RPM * MAX_RPM_RATIO          
-#define MOTOR_OPERATING_VOLTAGE 12         // motor's operating voltage (used to calculate max RPM)
-#define MOTOR_POWER_MAX_VOLTAGE 18         // max voltage of the motor's power source (used to calculate max RPM)
-#define MOTOR_POWER_MEASURED_VOLTAGE 18    // current voltage reading of the power connected to the motor (used for calibration)
+#define MOTOR_MAX_RPM 186                   // motor's max RPM          
+#define MAX_RPM_RATIO 0.95                  // max RPM allowed for each MAX_RPM_ALLOWED = MOTOR_MAX_RPM * MAX_RPM_RATIO          
+#define MOTOR_OPERATING_VOLTAGE 12          // motor's operating voltage (used to calculate max RPM)
+#define MOTOR_POWER_MAX_VOLTAGE 18          // max voltage of the motor's power source (used to calculate max RPM)
+#define MOTOR_POWER_MEASURED_VOLTAGE 18     // current voltage reading of the power connected to the motor (used for calibration)
 
-#define COUNTS_PER_REV1 (192)               // wheel1 encoder's no of ticks per rev
-#define COUNTS_PER_REV2 (192)               // wheel2 encoder's no of ticks per rev
+#define MAX_MANUAL_RPM 50                   // Max wheel RPM when in manual (human) drive mode
+
+#define COUNTS_PER_REV1 192                 // wheel1 encoder's no of ticks per rev
+#define COUNTS_PER_REV2 192                 // wheel2 encoder's no of ticks per rev
 
 #define WHEEL_DIAMETER 0.280                // wheel's diameter in meters
+#define FR_WHEELS_DISTANCE 0.708            // distance between front and back wheels
 #define LR_WHEELS_DISTANCE 0.660            // distance between left and right wheels
 #define PWM_BITS 10                         // PWM Resolution of the microcontroller
 #define PWM_FREQUENCY 20000                 // PWM Frequency
+
+#define STEERING_FULL_RANGE_STEPS 28        // Steering range in steering encoder units
+#define STEERING_FULL_RANGE_DEG   68        // Steering range in degrees
+
+#define MIN_ACCEL_IN 750                    // Accel pedal analog inp value not pressed
+#define MAX_ACCEL_IN 300                    // Accel pedal analog inp value full press
 
 // INVERT ENCODER COUNTS
 #define MOTOR1_ENCODER_INV true
@@ -176,7 +185,6 @@ ROBOT ORIENTATION
 #endif
 
 // Motor power relay control related
-
 // Active high output is connected thru
 // emergency stop switch and wireless switch
 // to the control input of the relay.
@@ -193,7 +201,8 @@ ROBOT ORIENTATION
 #define STEER_LEFT_LIMIT_IN 3   // Active low left limit Hall sensor
 #define ESTOP_IN            7   // Active low (estop pressed or rf sw off)
 
-#define IIC_ADDR_INA226_CTRL_BAT    0x40
-#define IIC_ADDR_INA226_DRIVE_BAT   0x41
+// I2C addresses
+#define IIC_ADDR_INA226_CTRL_BAT    0x40  // INA226 connected to control circuitry battery
+#define IIC_ADDR_INA226_DRIVE_BAT   0x41  // INA226 connected to motors battery (shunt not connected)
 
 #endif
