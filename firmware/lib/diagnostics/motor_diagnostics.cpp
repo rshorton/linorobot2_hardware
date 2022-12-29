@@ -11,7 +11,7 @@
 #include <micro_ros_utilities/type_utilities.h>
 #include <micro_ros_utilities/string_utilities.h>
 
-#include "diagnostics.h"
+#include "motor_diagnostics.h"
 
 MotorDiags::MotorDiags():
     inited_(false)

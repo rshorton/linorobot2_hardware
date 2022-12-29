@@ -1,5 +1,5 @@
-#ifndef DIAGNOSTICS_H
-#define DIAGNOSTICS_H
+#ifndef MOTOR_DIAGNOSTICS_H
+#define MOTOR_DIAGNOSTICS_H
 
 #include <Arduino.h>
 
@@ -30,4 +30,4 @@ class MotorDiags
 #endif        
 };
 
-#endif
+#endif // MOTOR_DIAGNOSTICS_H

@@ -38,7 +38,8 @@
 #define ENCODER_OPTIMIZE_INTERRUPTS
 #include "encoder_none.h"
 #include "encoder.h"
-#include "diagnostics.h"
+#include "motor_diagnostics.h"
+#include "battery_diagnostics.h"
 #include "util.h"
 #include "steering.h"
 #include "accel_pedal.h"
@@ -51,6 +52,8 @@
 
 const int ONE_SEC_IN_US = 1000000;
 const int ONE_SEC_IN_MS = 1000;
+
+const int BATTERY_DIAG_PUBLISH_PERIOD_MS = 10000;
 
 const int JOY_BUTTON_LB = 4;        // Game controller button, left side, closest to top
 
@@ -93,6 +96,7 @@ rclc_support_t support;
 rcl_allocator_t allocator;
 rcl_node_t node;
 rcl_timer_t control_timer;
+rcl_timer_t battery_timer;
 
 unsigned long long time_offset = 0;
 unsigned long prev_cmd_time = 0;
@@ -136,6 +140,9 @@ AccelPedal accel_pedal(ACCEL_SW_IN, 0, ACCEL_LEVEL_IN, MIN_ACCEL_IN, MAX_ACCEL_I
 
 INA226 pwr_mon_ctrl_bat;
 INA226 pwr_mon_drive_bat;
+
+BatteryDiags control_battery_diags("control", pwr_mon_ctrl_bat);
+BatteryDiags drive_battery_diags("drive", pwr_mon_drive_bat);
 
 Kinematics kinematics(
     Kinematics::ACKERMANN, 
@@ -250,6 +257,15 @@ void controlCallback(rcl_timer_t * timer, int64_t last_call_time)
     }
 }
 
+void batteryCallback(rcl_timer_t * timer, int64_t last_call_time) 
+{
+    RCLC_UNUSED(last_call_time);
+    if (timer != NULL) 
+    {
+        publishBatteryState();
+    }
+}
+
 void twistCallback(const void * msgin) 
 {
     digitalWrite(LED_PIN, !digitalRead(LED_PIN));
@@ -338,6 +354,9 @@ void createEntities()
         "imu/data"
     ));
 
+    control_battery_diags.create(node);
+    drive_battery_diags.create(node);
+
 #if defined(PUBLISH_MOTOR_DIAGS)
     // create diagnostics publisher
     motor1_diags.create(node, 1);
@@ -403,6 +422,15 @@ void createEntities()
         controlCallback
     ));
 
+    // create timer for monitoring the batteries
+    const unsigned int battery_status_timeout = BATTERY_DIAG_PUBLISH_PERIOD_MS;
+    RCCHECK(rclc_timer_init_default( 
+        &battery_timer, 
+        &support,
+        RCL_MS_TO_NS(battery_status_timeout),
+        batteryCallback
+    ));
+
     executor = rclc_executor_get_zero_initialized_executor();
 // fix    
     RCCHECK(rclc_executor_init(&executor, &support.context, 2 + 3, & allocator));
@@ -457,6 +485,8 @@ void createEntities()
     ));
 #endif
     RCCHECK(rclc_executor_add_timer(&executor, &control_timer));
+    RCCHECK(rclc_executor_add_timer(&executor, &battery_timer));
+
     // synchronize time with the agent
     syncTime();
     digitalWrite(LED_PIN, HIGH);
@@ -466,6 +496,9 @@ void createEntities()
 void destroyEntities()
 {
     digitalWrite(LED_PIN, LOW);
+
+    control_battery_diags.destroy(node);
+    drive_battery_diags.destroy(node);
 
 #if defined(PUBLISH_MOTOR_DIAGS)
     motor1_diags.destroy(node);
@@ -486,6 +519,7 @@ void destroyEntities()
 #endif
     rcl_node_fini(&node);
     rcl_timer_fini(&control_timer);
+    rcl_timer_fini(&battery_timer);
     rclc_executor_fini(&executor);
     rclc_support_fini(&support);
 
@@ -612,6 +646,12 @@ void moveBase()
     );
 
     steering.update();
+}
+
+void publishBatteryState()
+{
+    control_battery_diags.publish();
+    drive_battery_diags.publish();
 }
 
 void publishData()
