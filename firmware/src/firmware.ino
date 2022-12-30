@@ -168,6 +168,11 @@ MotorDiags motor2_diags;
 
 bool pwr_relay_on = false;
 
+bool estop_asserted()
+{
+    return digitalRead(ESTOP_IN) == 0;
+}
+
 void setup() 
 {
     pinMode(LED_PIN, OUTPUT);
@@ -209,7 +214,7 @@ void setup()
     steering.home();
     while (steering.get_state() == Steering::State::kHoming)
     {
-        steering.update();
+        steering.update(!estop_asserted());
     }
     steering.enable_external_control();
 
@@ -230,7 +235,8 @@ void loop()
             if (!micro_ros_init_successful) 
             {
                 createEntities();
-            } 
+                publishBatteryState();
+            }
         } 
         else if(micro_ros_init_successful)
         {
@@ -561,21 +567,25 @@ void moveBase()
     current_rpm1 = motor1_encoder.getRPM();
     current_rpm2 = motor2_encoder.getRPM();
 
+    bool estop = estop_asserted();
+
 #if defined(MAN_CONTROL)
     if (manual_control)
     {
         accel_pedal.update();
         float level = accel_pedal.get_level();
-
-        if (!digitalRead(FORW_REV_SW_IN)) {
-            level *= -1;
-        }
+        bool forward = digitalRead(FORW_REV_SW_IN);
 
         float req_rpm = 0.0;
-
-        if (joy_msg.buttons.data[JOY_BUTTON_LB])
+        // Must press left-top joystick button and estop/rf sw must allow control
+        if (joy_msg.buttons.data[JOY_BUTTON_LB] && !estop)
         {
-            req_rpm = level * MAX_MANUAL_RPM;
+            req_rpm = level;
+            if (forward) {
+                req_rpm *= MAX_MANUAL_RPM_FORWARD;
+            } else {
+                req_rpm *= -MAX_MANUAL_RPM_REVERSE;
+            }
         }            
 
         // Don't drive motor in the opposite direction until it stops
@@ -584,7 +594,6 @@ void moveBase()
         }
         motor1_controller.spin(motor1_pid.compute(req_rpm, current_rpm1));
         motor2_controller.spin(motor2_pid.compute(req_rpm, current_rpm2));        
-
     }
     else
 #endif    
@@ -606,11 +615,11 @@ void moveBase()
         );
 
         // Don't drive motor in the opposite direction until it stops
-        if (directionChange(current_rpm1, req_rpm.motor1)) {
+        if (directionChange(current_rpm1, req_rpm.motor1) || estop) {
             req_rpm.motor1 = 0.0;
         }
 
-        if (directionChange(current_rpm2, req_rpm.motor2)) {
+        if (directionChange(current_rpm2, req_rpm.motor2) || estop) {
             req_rpm.motor2 = 0.0;
         }
 
@@ -645,7 +654,7 @@ void moveBase()
         current_vel.angular_z
     );
 
-    steering.update();
+    steering.update(!estop);
 }
 
 void publishBatteryState()
