@@ -57,7 +57,9 @@ ROBOT ORIENTATION
 #define MOTOR_POWER_MAX_VOLTAGE 18          // max voltage of the motor's power source (used to calculate max RPM)
 #define MOTOR_POWER_MEASURED_VOLTAGE 18     // current voltage reading of the power connected to the motor (used for calibration)
 
-#define MAX_MANUAL_RPM 50                   // Max wheel RPM when in manual (human) drive mode
+                                            // Max wheel RPM when in manual (human) drive mode
+#define MAX_MANUAL_RPM_FORWARD 70           //  Forward
+#define MAX_MANUAL_RPM_REVERSE 40           //  Reverse
 
 #define COUNTS_PER_REV1 192                 // wheel1 encoder's no of ticks per rev
 #define COUNTS_PER_REV2 192                 // wheel2 encoder's no of ticks per rev

@@ -266,7 +266,7 @@ long Steering::external_control_update()
     return apply_position();
 }
 
-void Steering::update()
+void Steering::update(bool enable)
 {
     unsigned long now = millis();
 
@@ -277,6 +277,17 @@ void Steering::update()
     shaft_pos_ = enc_shaft_.read();
 
     unsigned long next_update_delta = DEF_UPDATE_PERIOD_MS;
+
+    // Stop control if steering is disabled.
+    // This is used such when emergency stop is enabled.  In that case
+    // the drive power will be disabled, so the control loop of this
+    // object should go idle and not drive the loop harder to avoid
+    // hammering the motor when estop is de-asserted.
+    if (!enable) {
+        motor_.spin(0);
+        pid_.reset();
+        return;
+    }
 
     switch (main_state_)
     {

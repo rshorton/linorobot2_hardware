@@ -49,7 +49,7 @@ public:
     int8_t get_actual_pos() const { return shaft_pos_; }
     int8_t get_actual_pos_deg() const { return (float)shaft_pos_/steps_per_deg_; }
 
-    void update();
+    void update(bool enable);
 
 private:
     long homing_state_machine();
