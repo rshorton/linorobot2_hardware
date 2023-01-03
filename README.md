@@ -36,7 +36,8 @@ Phase 2 (future)
 * 10-port USB hub
 * GPS
 
-TBD:
-See this project for the ROS2 bring-up scripts:
-https://github.com/rshorton/elsabot_4wd
+See this WIP project for the ROS2 bring-up scripts:
+https://github.com/rshorton/elsabot_jeep
+
+
 
