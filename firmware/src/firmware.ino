@@ -55,7 +55,12 @@ const int ONE_SEC_IN_MS = 1000;
 
 const int BATTERY_DIAG_PUBLISH_PERIOD_MS = 10000;
 
-const int JOY_BUTTON_LB = 4;        // Game controller button, left side, closest to top
+                                    // Game controller buttons
+const int JOY_BUTTON_LB = 4;        // left side, closest to top
+const int JOY_BUTTON_X = 2;         // X
+const int JOY_BUTTON_Y = 3;         // Y
+const int JOY_BUTTON_A = 0;         // A
+const int JOY_BUTTON_B = 1;         // B
 
 const int ERR_BLINK_GENERAL = 2;
 const int ERR_BLINK_IMU = 3;
@@ -76,6 +81,9 @@ std_msgs__msg__Bool manual_control_msg;
 sensor_msgs__msg__Joy joy_msg;
 int32_t button_data[9];
 #endif
+
+rcl_subscription_t speed_scale_subscriber;
+std_msgs__msg__Float32 speed_scale_msg;
 
 #if defined(TUNE_PID_LOOP)
 rcl_subscription_t pid_kp_subscriber;
@@ -103,6 +111,7 @@ unsigned long prev_cmd_time = 0;
 unsigned long prev_odom_update = 0;
 bool micro_ros_init_successful = false;
 bool manual_control = false;
+float speed_scale = 1.0;
 
 Kinematics::rpm req_rpm;
 
@@ -168,7 +177,7 @@ MotorDiags motor2_diags;
 
 bool pwr_relay_on = false;
 
-bool estop_asserted()
+bool estopAsserted()
 {
     return digitalRead(ESTOP_IN) == 0;
 }
@@ -214,7 +223,7 @@ void setup()
     steering.home();
     while (steering.get_state() == Steering::State::kHoming)
     {
-        steering.update(!estop_asserted());
+        steering.update(!estopAsserted());
     }
     steering.enable_external_control();
 
@@ -231,7 +240,7 @@ void loop()
         // check if the agent is connected
         if(RMW_RET_OK == rmw_uros_ping_agent(10, 2))
         {
-            // reconnect if agent got disconnected or haven't at all
+            // reconnect if agent got disconnected or first time
             if (!micro_ros_init_successful) 
             {
                 createEntities();
@@ -240,7 +249,7 @@ void loop()
         } 
         else if(micro_ros_init_successful)
         {
-            // stop the robot when the agent got disconnected
+            // stop the robot when the agent is disconnected
             fullStop();
             // clean up micro-ROS components
             destroyEntities();
@@ -279,6 +288,13 @@ void twistCallback(const void * msgin)
     prev_cmd_time = millis();
 }
 
+void setSpeedScale(float scale)
+{
+    if (scale <= 3.0 && scale >= 0.5) {
+        speed_scale = scale;
+    }
+}
+
 #if defined(MAN_CONTROL)
 void setManualControl(bool enable)
 {
@@ -307,9 +323,23 @@ void joyCallback(const void * msgin)
         manual_control = enable;
         setManualControl(enable);
     }
+
+    if (joy_msg.buttons.data[JOY_BUTTON_X]) {
+        setSpeedScale(1.0);
+    } else if (joy_msg.buttons.data[JOY_BUTTON_A]) {
+        setSpeedScale(1.5);
+    } else if (joy_msg.buttons.data[JOY_BUTTON_B]) {
+        setSpeedScale(2.0);
+    }
+
 #endif    
 } 
 #endif    
+
+void speedScaleCalback(const void * msgin) 
+{
+    setSpeedScale(speed_scale_msg.data);
+}
 
 #if defined(TUNE_PID_LOOP)
 void pidKpCallback(const void * msgin) 
@@ -368,6 +398,13 @@ void createEntities()
     motor1_diags.create(node, 1);
     motor2_diags.create(node, 2);
 #endif
+
+    RCCHECK_WITH_BLINK_CODE(3, rclc_subscription_init_default( 
+        &speed_scale_subscriber, 
+        &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
+        "speed_scale"
+    ));
 
 #if defined(TUNE_PID_LOOP)
     RCCHECK_WITH_BLINK_CODE(3, rclc_subscription_init_default( 
@@ -438,8 +475,8 @@ void createEntities()
     ));
 
     executor = rclc_executor_get_zero_initialized_executor();
-// fix    
-    RCCHECK(rclc_executor_init(&executor, &support.context, 2 + 3, & allocator));
+    // 9 handesl = 7 subscriptions + 2 timers  (including ifdef'ed subs)
+    RCCHECK(rclc_executor_init(&executor, &support.context, 9, & allocator));
 
 #if defined(MAN_CONTROL)
     RCCHECK(rclc_executor_add_subscription(
@@ -458,6 +495,14 @@ void createEntities()
         ON_NEW_DATA
     ));
 #endif
+
+    RCCHECK_WITH_BLINK_CODE(4, rclc_executor_add_subscription(
+        &executor, 
+        &speed_scale_subscriber, 
+        &speed_scale_msg, 
+        &speedScaleCalback, 
+        ON_NEW_DATA
+    ));
 
     RCCHECK(rclc_executor_add_subscription(
         &executor, 
@@ -513,19 +558,25 @@ void destroyEntities()
 
     rcl_publisher_fini(&odom_publisher, &node);
     rcl_publisher_fini(&imu_publisher, &node);
+
 #if defined(MAN_CONTROL)
     rcl_subscription_fini(&manual_control_subscriber, &node);
     rcl_subscription_fini(&joy_subscriber, &node);
 #endif
+    rcl_subscription_fini(&speed_scale_subscriber, &node);
     rcl_subscription_fini(&twist_subscriber, &node);
+
 #if defined(TUNE_PID_LOOP)
     rcl_subscription_fini(&pid_kp_subscriber, &node);
     rcl_subscription_fini(&pid_kd_subscriber, &node);
     rcl_subscription_fini(&pid_ki_subscriber, &node);
 #endif
+
     rcl_node_fini(&node);
+
     rcl_timer_fini(&control_timer);
     rcl_timer_fini(&battery_timer);
+
     rclc_executor_fini(&executor);
     rclc_support_fini(&support);
 
@@ -549,7 +600,7 @@ float steer(float steering_angle)
     return -angle_deg*M_PI/180.0;
 }
 
-float get_steering_pos()
+float getSteeringPos()
 {
     return steering.get_actual_pos_deg()*M_PI/180.0;
 }
@@ -559,15 +610,13 @@ bool directionChange(float cur_rpm, float req_rpm)
     return abs(cur_rpm) > 0.1 && sgn(cur_rpm) != sgn(req_rpm);
 }
 
-int encoder_read_cnt = 0;
-
 void moveBase()
 {
     // get the current speed of each motor
     current_rpm1 = motor1_encoder.getRPM();
     current_rpm2 = motor2_encoder.getRPM();
 
-    bool estop = estop_asserted();
+    bool estop = estopAsserted();
 
 #if defined(MAN_CONTROL)
     if (manual_control)
@@ -582,7 +631,7 @@ void moveBase()
         {
             req_rpm = level;
             if (forward) {
-                req_rpm *= MAX_MANUAL_RPM_FORWARD;
+                req_rpm *= MAX_MANUAL_RPM_FORWARD*speed_scale;
             } else {
                 req_rpm *= -MAX_MANUAL_RPM_REVERSE;
             }
@@ -609,7 +658,7 @@ void moveBase()
         }
         // get the required rpm for each motor based on required velocities, and base used
         req_rpm = kinematics.getRPM(
-            twist_msg.linear.x, 
+            twist_msg.linear.x * speed_scale, 
             twist_msg.linear.y, 
             twist_msg.angular.z
         );
@@ -634,10 +683,11 @@ void moveBase()
         }
     }
 
+    // Fix - this stuff is probably incorrect for Ackermann/this robot
     Kinematics::velocities current_vel;
     if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
     {
-        current_vel = kinematics.getVelocities(get_steering_pos(), current_rpm1, current_rpm2);
+        current_vel = kinematics.getVelocities(getSteeringPos(), current_rpm1, current_rpm2);
     }
     else
     {
@@ -703,7 +753,6 @@ struct timespec getTime()
     unsigned long long now = millis() + time_offset;
     tp.tv_sec = now / 1000;
     tp.tv_nsec = (now % 1000) * 1000000;
-
     return tp;
 }
 
