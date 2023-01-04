@@ -45,8 +45,8 @@
 #include "accel_pedal.h"
 #include "INA226.h"
 
-#undef PUBLISH_MOTOR_DIAGS         // Define to publish the PID status for plotting via RQT
-#undef TUNE_PID_LOOP               // Allow tweaking of PID parameters via topic write
+#undef PUBLISH_MOTOR_DIAGS // Define to publish the PID status for plotting via RQT
+#undef TUNE_PID_LOOP       // Allow tweaking of PID parameters via topic write
 #define MAN_CONTROL
 #define JOY_BUTTON_ENABLES_MAN_CONTROL
 
@@ -55,19 +55,39 @@ const int ONE_SEC_IN_MS = 1000;
 
 const int BATTERY_DIAG_PUBLISH_PERIOD_MS = 10000;
 
-                                    // Game controller buttons
-const int JOY_BUTTON_LB = 4;        // left side, closest to top
-const int JOY_BUTTON_X = 2;         // X
-const int JOY_BUTTON_Y = 3;         // Y
-const int JOY_BUTTON_A = 0;         // A
-const int JOY_BUTTON_B = 1;         // B
+// Game controller buttons
+const int JOY_BUTTON_LB = 4; // left side, closest to top
+const int JOY_BUTTON_X = 2;  // X
+const int JOY_BUTTON_Y = 3;  // Y
+const int JOY_BUTTON_A = 0;  // A
+const int JOY_BUTTON_B = 1;  // B
 
 const int ERR_BLINK_GENERAL = 2;
 const int ERR_BLINK_IMU = 3;
 
-#define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){rclErrorLoop(ERR_BLINK_GENERAL);}}
-#define RCCHECK_WITH_BLINK_CODE(blink_code, fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){rclErrorLoop(blink_code);}}
-#define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){}}
+#define RCCHECK(fn)                          \
+    {                                        \
+        rcl_ret_t temp_rc = fn;              \
+        if ((temp_rc != RCL_RET_OK))         \
+        {                                    \
+            rclErrorLoop(ERR_BLINK_GENERAL); \
+        }                                    \
+    }
+#define RCCHECK_WITH_BLINK_CODE(blink_code, fn) \
+    {                                           \
+        rcl_ret_t temp_rc = fn;                 \
+        if ((temp_rc != RCL_RET_OK))            \
+        {                                       \
+            rclErrorLoop(blink_code);           \
+        }                                       \
+    }
+#define RCSOFTCHECK(fn)              \
+    {                                \
+        rcl_ret_t temp_rc = fn;      \
+        if ((temp_rc != RCL_RET_OK)) \
+        {                            \
+        }                            \
+    }
 
 rcl_publisher_t odom_publisher;
 rcl_publisher_t imu_publisher;
@@ -145,7 +165,7 @@ PID motor_str_pid(STR_PWM_MIN, STR_PWM_MAX, 40, 10.0, 50.0);
 Steering steering(STEER_LEFT_LIMIT_IN, STEERING_FULL_RANGE_STEPS, STEERING_FULL_RANGE_DEG, 1.5,
                   motor_str_controller, str_motor_enc, str_wheel_enc, motor_str_pid);
 
-AccelPedal accel_pedal(ACCEL_SW_IN, 0, ACCEL_LEVEL_IN, MIN_ACCEL_IN, MAX_ACCEL_IN, ONE_SEC_IN_MS/20, 0.5);
+AccelPedal accel_pedal(ACCEL_SW_IN, 0, ACCEL_LEVEL_IN, MIN_ACCEL_IN, MAX_ACCEL_IN, ONE_SEC_IN_MS / 20, 0.5);
 
 INA226 pwr_mon_ctrl_bat;
 INA226 pwr_mon_drive_bat;
@@ -154,15 +174,14 @@ BatteryDiags control_battery_diags("control", pwr_mon_ctrl_bat);
 BatteryDiags drive_battery_diags("drive", pwr_mon_drive_bat);
 
 Kinematics kinematics(
-    Kinematics::ACKERMANN, 
-    MOTOR_MAX_RPM, 
-    MAX_RPM_RATIO, 
-    MOTOR_OPERATING_VOLTAGE, 
-    MOTOR_POWER_MAX_VOLTAGE, 
-    WHEEL_DIAMETER, 
+    Kinematics::ACKERMANN,
+    MOTOR_MAX_RPM,
+    MAX_RPM_RATIO,
+    MOTOR_OPERATING_VOLTAGE,
+    MOTOR_POWER_MAX_VOLTAGE,
+    WHEEL_DIAMETER,
     FR_WHEELS_DISTANCE,
-    LR_WHEELS_DISTANCE
-);
+    LR_WHEELS_DISTANCE);
 
 Odometry odometry;
 IMU imu;
@@ -182,7 +201,7 @@ bool estopAsserted()
     return digitalRead(ESTOP_IN) == 0;
 }
 
-void setup() 
+void setup()
 {
     pinMode(LED_PIN, OUTPUT);
 
@@ -203,16 +222,16 @@ void setup()
     pwr_mon_drive_bat.calibrate(0.1, 20);
 
     bool imu_ok = imu.init();
-    if(!imu_ok)
+    if (!imu_ok)
     {
-        while(1)
+        while (1)
         {
             flashLED(3);
         }
     }
 
     micro_ros_init_successful = false;
-    
+
     Serial.begin(115200);
     set_microros_serial_transports(Serial);
 
@@ -230,24 +249,24 @@ void setup()
     flashLED(2);
 }
 
-void loop() 
+void loop()
 {
     static unsigned long prev_connect_test_time;
     // check if the agent got disconnected at 10Hz
-    if(millis() - prev_connect_test_time >= 100)
+    if (millis() - prev_connect_test_time >= 100)
     {
         prev_connect_test_time = millis();
         // check if the agent is connected
-        if(RMW_RET_OK == rmw_uros_ping_agent(10, 2))
+        if (RMW_RET_OK == rmw_uros_ping_agent(10, 2))
         {
             // reconnect if agent got disconnected or first time
-            if (!micro_ros_init_successful) 
+            if (!micro_ros_init_successful)
             {
                 createEntities();
                 publishBatteryState();
             }
-        } 
-        else if(micro_ros_init_successful)
+        }
+        else if (micro_ros_init_successful)
         {
             // stop the robot when the agent is disconnected
             fullStop();
@@ -256,32 +275,32 @@ void loop()
         }
     }
 
-    if(micro_ros_init_successful)
+    if (micro_ros_init_successful)
     {
         rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
     }
 }
 
-void controlCallback(rcl_timer_t * timer, int64_t last_call_time) 
+void controlCallback(rcl_timer_t *timer, int64_t last_call_time)
 {
     RCLC_UNUSED(last_call_time);
-    if (timer != NULL) 
+    if (timer != NULL)
     {
-       moveBase();
-       publishData();
+        moveBase();
+        publishData();
     }
 }
 
-void batteryCallback(rcl_timer_t * timer, int64_t last_call_time) 
+void batteryCallback(rcl_timer_t *timer, int64_t last_call_time)
 {
     RCLC_UNUSED(last_call_time);
-    if (timer != NULL) 
+    if (timer != NULL)
     {
         publishBatteryState();
     }
 }
 
-void twistCallback(const void * msgin) 
+void twistCallback(const void *msgin)
 {
     digitalWrite(LED_PIN, !digitalRead(LED_PIN));
 
@@ -290,7 +309,8 @@ void twistCallback(const void * msgin)
 
 void setSpeedScale(float scale)
 {
-    if (scale <= 3.0 && scale >= 0.5) {
+    if (scale <= 3.0 && scale >= 0.5)
+    {
         speed_scale = scale;
     }
 }
@@ -298,51 +318,61 @@ void setSpeedScale(float scale)
 #if defined(MAN_CONTROL)
 void setManualControl(bool enable)
 {
-    if (enable) {
+    if (enable)
+    {
         steering.enable_steering_wheel();
-    } else {
+    }
+    else
+    {
         steering.enable_external_control();
     }
 }
 
-void manualControlCallback(const void * msgin) 
+void manualControlCallback(const void *msgin)
 {
-    if (manual_control != manual_control_msg.data) {
+    if (manual_control != manual_control_msg.data)
+    {
         manual_control = manual_control_msg.data;
         setManualControl(manual_control);
     }
 }
 
-void joyCallback(const void * msgin)
+void joyCallback(const void *msgin)
 {
     RCLC_UNUSED(msgin);
 
 #if defined(JOY_BUTTON_ENABLES_MAN_CONTROL)
     bool enable = (bool)joy_msg.buttons.data[JOY_BUTTON_LB];
-    if (enable != manual_control) {
+    if (enable != manual_control)
+    {
         manual_control = enable;
         setManualControl(enable);
     }
 
-    if (joy_msg.buttons.data[JOY_BUTTON_X]) {
+    if (joy_msg.buttons.data[JOY_BUTTON_X])
+    {
         setSpeedScale(1.0);
-    } else if (joy_msg.buttons.data[JOY_BUTTON_A]) {
+    }
+    else if (joy_msg.buttons.data[JOY_BUTTON_A])
+    {
         setSpeedScale(1.5);
-    } else if (joy_msg.buttons.data[JOY_BUTTON_B]) {
+    }
+    else if (joy_msg.buttons.data[JOY_BUTTON_B])
+    {
         setSpeedScale(2.0);
     }
 
-#endif    
-} 
-#endif    
+#endif
+}
+#endif
 
-void speedScaleCalback(const void * msgin) 
+void speedScaleCalback(const void *msgin)
 {
     setSpeedScale(speed_scale_msg.data);
 }
 
 #if defined(TUNE_PID_LOOP)
-void pidKpCallback(const void * msgin) 
+void pidKpCallback(const void *msgin)
 {
     motor1_pid.updateKp(pid_kp_msg.data);
     motor2_pid.updateKp(pid_kp_msg.data);
@@ -350,7 +380,7 @@ void pidKpCallback(const void * msgin)
     motor4_pid.updateKp(pid_kp_msg.data);
 }
 
-void pidKdCallback(const void * msgin) 
+void pidKdCallback(const void *msgin)
 {
     motor1_pid.updateKd(pid_kd_msg.data);
     motor2_pid.updateKd(pid_kd_msg.data);
@@ -358,7 +388,7 @@ void pidKdCallback(const void * msgin)
     motor4_pid.updateKd(pid_kd_msg.data);
 }
 
-void pidKiCallback(const void * msgin) 
+void pidKiCallback(const void *msgin)
 {
     motor1_pid.updateKi(pid_ki_msg.data);
     motor2_pid.updateKi(pid_ki_msg.data);
@@ -370,25 +400,23 @@ void pidKiCallback(const void * msgin)
 void createEntities()
 {
     allocator = rcl_get_default_allocator();
-    //create init_options
+    // create init_options
     RCCHECK(rclc_support_init(&support, 0, NULL, &allocator));
     // create node
     RCCHECK(rclc_node_init_default(&node, "linorobot_base_node", "", &support));
     // create odometry publisher
-    RCCHECK(rclc_publisher_init_default( 
-        &odom_publisher, 
+    RCCHECK(rclc_publisher_init_default(
+        &odom_publisher,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(nav_msgs, msg, Odometry),
-        "odom/unfiltered"
-    ));
+        "odom/unfiltered"));
 
     // create IMU publisher
-    RCCHECK(rclc_publisher_init_default( 
-        &imu_publisher, 
+    RCCHECK(rclc_publisher_init_default(
+        &imu_publisher,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
-        "imu/data"
-    ));
+        "imu/data"));
 
     control_battery_diags.create(node);
     drive_battery_diags.create(node);
@@ -399,141 +427,125 @@ void createEntities()
     motor2_diags.create(node, 2);
 #endif
 
-    RCCHECK_WITH_BLINK_CODE(3, rclc_subscription_init_default( 
-        &speed_scale_subscriber, 
-        &node,
-        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
-        "speed_scale"
-    ));
+    RCCHECK_WITH_BLINK_CODE(3, rclc_subscription_init_default(
+                                   &speed_scale_subscriber,
+                                   &node,
+                                   ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
+                                   "speed_scale"));
 
 #if defined(TUNE_PID_LOOP)
-    RCCHECK_WITH_BLINK_CODE(3, rclc_subscription_init_default( 
-        &pid_kp_subscriber, 
+    RCCHECK_WITH_BLINK_CODE(3, rclc_subscription_init_default(
+                                   &pid_kp_subscriber,
+                                   &node,
+                                   ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
+                                   "pid_kp"));
+    RCCHECK(rclc_subscription_init_default(
+        &pid_kd_subscriber,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
-        "pid_kp"
-    ));
-    RCCHECK(rclc_subscription_init_default( 
-        &pid_kd_subscriber, 
-        &node,
-        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
-        "pid_kd"
-    ));
+        "pid_kd"));
 
-    RCCHECK(rclc_subscription_init_default( 
-        &pid_ki_subscriber, 
+    RCCHECK(rclc_subscription_init_default(
+        &pid_ki_subscriber,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
-        "pid_ki"
-    ));
+        "pid_ki"));
 #endif
 
 #if defined(MAN_CONTROL)
-    RCCHECK(rclc_subscription_init_default( 
-        &manual_control_subscriber, 
+    RCCHECK(rclc_subscription_init_default(
+        &manual_control_subscriber,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
-        "manual_control"
-    ));
+        "manual_control"));
 
     joy_msg.buttons.data = button_data;
     joy_msg.buttons.size = 0;
     joy_msg.buttons.capacity = sizeof(button_data);
 
-    RCCHECK(rclc_subscription_init_default( 
-        &joy_subscriber, 
+    RCCHECK(rclc_subscription_init_default(
+        &joy_subscriber,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Joy),
-        "joy"
-    ));
-#endif    
+        "joy"));
+#endif
 
     // create twist command subscriber
-    RCCHECK(rclc_subscription_init_default( 
-        &twist_subscriber, 
+    RCCHECK(rclc_subscription_init_default(
+        &twist_subscriber,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
-        "cmd_vel"
-    ));
+        "cmd_vel"));
 
     // create timer for actuating the motors at 50 Hz (1000/20)
     const unsigned int control_timeout = 20;
-    RCCHECK(rclc_timer_init_default( 
-        &control_timer, 
+    RCCHECK(rclc_timer_init_default(
+        &control_timer,
         &support,
         RCL_MS_TO_NS(control_timeout),
-        controlCallback
-    ));
+        controlCallback));
 
     // create timer for monitoring the batteries
     const unsigned int battery_status_timeout = BATTERY_DIAG_PUBLISH_PERIOD_MS;
-    RCCHECK(rclc_timer_init_default( 
-        &battery_timer, 
+    RCCHECK(rclc_timer_init_default(
+        &battery_timer,
         &support,
         RCL_MS_TO_NS(battery_status_timeout),
-        batteryCallback
-    ));
+        batteryCallback));
 
     executor = rclc_executor_get_zero_initialized_executor();
     // 9 handesl = 7 subscriptions + 2 timers  (including ifdef'ed subs)
-    RCCHECK(rclc_executor_init(&executor, &support.context, 9, & allocator));
+    RCCHECK(rclc_executor_init(&executor, &support.context, 9, &allocator));
 
 #if defined(MAN_CONTROL)
     RCCHECK(rclc_executor_add_subscription(
-        &executor, 
-        &manual_control_subscriber, 
-        &manual_control_msg, 
-        &manualControlCallback, 
-        ON_NEW_DATA
-    ));
+        &executor,
+        &manual_control_subscriber,
+        &manual_control_msg,
+        &manualControlCallback,
+        ON_NEW_DATA));
 
     RCCHECK(rclc_executor_add_subscription(
-        &executor, 
-        &joy_subscriber, 
-        &joy_msg, 
-        &joyCallback, 
-        ON_NEW_DATA
-    ));
+        &executor,
+        &joy_subscriber,
+        &joy_msg,
+        &joyCallback,
+        ON_NEW_DATA));
 #endif
 
     RCCHECK_WITH_BLINK_CODE(4, rclc_executor_add_subscription(
-        &executor, 
-        &speed_scale_subscriber, 
-        &speed_scale_msg, 
-        &speedScaleCalback, 
-        ON_NEW_DATA
-    ));
+                                   &executor,
+                                   &speed_scale_subscriber,
+                                   &speed_scale_msg,
+                                   &speedScaleCalback,
+                                   ON_NEW_DATA));
 
     RCCHECK(rclc_executor_add_subscription(
-        &executor, 
-        &twist_subscriber, 
-        &twist_msg, 
-        &twistCallback, 
-        ON_NEW_DATA
-    ));
+        &executor,
+        &twist_subscriber,
+        &twist_msg,
+        &twistCallback,
+        ON_NEW_DATA));
 
 #if defined(TUNE_PID_LOOP)
     RCCHECK_WITH_BLINK_CODE(4, rclc_executor_add_subscription(
-        &executor, 
-        &pid_kp_subscriber, 
-        &pid_kp_msg, 
-        &pidKpCallback, 
-        ON_NEW_DATA
-    ));
+                                   &executor,
+                                   &pid_kp_subscriber,
+                                   &pid_kp_msg,
+                                   &pidKpCallback,
+                                   ON_NEW_DATA));
     RCCHECK(rclc_executor_add_subscription(
-        &executor, 
-        &pid_kd_subscriber, 
-        &pid_kd_msg, 
-        &pidKdCallback, 
-        ON_NEW_DATA
-    ));
+        &executor,
+        &pid_kd_subscriber,
+        &pid_kd_msg,
+        &pidKdCallback,
+        ON_NEW_DATA));
     RCCHECK(rclc_executor_add_subscription(
-        &executor, 
-        &pid_ki_subscriber, 
-        &pid_ki_msg, 
-        &pidKiCallback, 
-        ON_NEW_DATA
-    ));
+        &executor,
+        &pid_ki_subscriber,
+        &pid_ki_msg,
+        &pidKiCallback,
+        ON_NEW_DATA));
 #endif
     RCCHECK(rclc_executor_add_timer(&executor, &control_timer));
     RCCHECK(rclc_executor_add_timer(&executor, &battery_timer));
@@ -595,14 +607,14 @@ void fullStop()
 
 float steer(float steering_angle)
 {
-    float angle_deg = -steering_angle*180.0/M_PI;
+    float angle_deg = -steering_angle * 180.0 / M_PI;
     angle_deg = steering.set_position_deg(angle_deg);
-    return -angle_deg*M_PI/180.0;
+    return -angle_deg * M_PI / 180.0;
 }
 
 float getSteeringPos()
 {
-    return steering.get_actual_pos_deg()*M_PI/180.0;
+    return steering.get_actual_pos_deg() * M_PI / 180.0;
 }
 
 bool directionChange(float cur_rpm, float req_rpm)
@@ -630,25 +642,29 @@ void moveBase()
         if (joy_msg.buttons.data[JOY_BUTTON_LB] && !estop)
         {
             req_rpm = level;
-            if (forward) {
-                req_rpm *= MAX_MANUAL_RPM_FORWARD*speed_scale;
-            } else {
+            if (forward)
+            {
+                req_rpm *= MAX_MANUAL_RPM_FORWARD * speed_scale;
+            }
+            else
+            {
                 req_rpm *= -MAX_MANUAL_RPM_REVERSE;
             }
-        }            
+        }
 
         // Don't drive motor in the opposite direction until it stops
-        if (directionChange(current_rpm1, req_rpm)) {
+        if (directionChange(current_rpm1, req_rpm))
+        {
             req_rpm = 0.0;
         }
         motor1_controller.spin(motor1_pid.compute(req_rpm, current_rpm1));
-        motor2_controller.spin(motor2_pid.compute(req_rpm, current_rpm2));        
+        motor2_controller.spin(motor2_pid.compute(req_rpm, current_rpm2));
     }
     else
-#endif    
+#endif
     {
         // brake if there's no command received, or when it's only the first command sent
-        if(((millis() - prev_cmd_time) >= 200)) 
+        if (((millis() - prev_cmd_time) >= 200))
         {
             twist_msg.linear.x = 0.0;
             twist_msg.linear.y = 0.0;
@@ -658,17 +674,18 @@ void moveBase()
         }
         // get the required rpm for each motor based on required velocities, and base used
         req_rpm = kinematics.getRPM(
-            twist_msg.linear.x * speed_scale, 
-            twist_msg.linear.y, 
-            twist_msg.angular.z
-        );
+            twist_msg.linear.x * speed_scale,
+            twist_msg.linear.y,
+            twist_msg.angular.z);
 
         // Don't drive motor in the opposite direction until it stops
-        if (directionChange(current_rpm1, req_rpm.motor1) || estop) {
+        if (directionChange(current_rpm1, req_rpm.motor1) || estop)
+        {
             req_rpm.motor1 = 0.0;
         }
 
-        if (directionChange(current_rpm2, req_rpm.motor2) || estop) {
+        if (directionChange(current_rpm2, req_rpm.motor2) || estop)
+        {
             req_rpm.motor2 = 0.0;
         }
 
@@ -698,11 +715,10 @@ void moveBase()
     float vel_dt = (now - prev_odom_update) / 1000.0;
     prev_odom_update = now;
     odometry.update(
-        vel_dt, 
-        current_vel.linear_x, 
-        current_vel.linear_y, 
-        current_vel.angular_z
-    );
+        vel_dt,
+        current_vel.linear_x,
+        current_vel.linear_y,
+        current_vel.angular_z);
 
     steering.update(!estop);
 }
@@ -740,7 +756,7 @@ void syncTime()
     // get the current time from the agent
     unsigned long now = millis();
     RCCHECK(rmw_uros_sync_session(10));
-    unsigned long long ros_time_ms = rmw_uros_epoch_millis(); 
+    unsigned long long ros_time_ms = rmw_uros_epoch_millis();
     // now we can find the difference between ROS time and uC time
     time_offset = ros_time_ms - now;
 }
@@ -756,9 +772,9 @@ struct timespec getTime()
     return tp;
 }
 
-void rclErrorLoop(int n_times) 
+void rclErrorLoop(int n_times)
 {
-    while(true)
+    while (true)
     {
         flashLED(n_times);
     }
@@ -766,7 +782,7 @@ void rclErrorLoop(int n_times)
 
 void flashLED(int n_times)
 {
-    for(int i=0; i<n_times; i++)
+    for (int i = 0; i < n_times; i++)
     {
         digitalWrite(LED_PIN, HIGH);
         delay(150);
