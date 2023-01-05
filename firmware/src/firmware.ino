@@ -55,6 +55,12 @@ const int ONE_SEC_IN_MS = 1000;
 
 const int BATTERY_DIAG_PUBLISH_PERIOD_MS = 10000;
 
+const float SPEED_SCALE_TURTLE = 0.25;
+const float SPEED_SCALE_SLOW = 0.5;
+const float SPEED_SCALE_NORMAL = 0.75;
+const float SPEED_SCALE_LUDICROUS = 1.0;
+const float SPEED_SCALE_CRAZY_LUDICROUS = 1.25;
+
 // Game controller buttons
 const int JOY_BUTTON_LB = 4; // left side, closest to top
 const int JOY_BUTTON_X = 2;  // X
@@ -131,7 +137,7 @@ unsigned long prev_cmd_time = 0;
 unsigned long prev_odom_update = 0;
 bool micro_ros_init_successful = false;
 bool manual_control = false;
-float speed_scale = 1.0;
+float speed_scale = SPEED_SCALE_SLOW;
 
 Kinematics::rpm req_rpm;
 
@@ -309,7 +315,8 @@ void twistCallback(const void *msgin)
 
 void setSpeedScale(float scale)
 {
-    if (scale <= 3.0 && scale >= 0.5)
+    if (scale >= SPEED_SCALE_TURTLE &&
+        scale <= SPEED_SCALE_CRAZY_LUDICROUS)
     {
         speed_scale = scale;
     }
@@ -351,15 +358,15 @@ void joyCallback(const void *msgin)
 
     if (joy_msg.buttons.data[JOY_BUTTON_X])
     {
-        setSpeedScale(1.0);
+        setSpeedScale(SPEED_SCALE_SLOW);
     }
     else if (joy_msg.buttons.data[JOY_BUTTON_A])
     {
-        setSpeedScale(1.5);
+        setSpeedScale(SPEED_SCALE_NORMAL);
     }
     else if (joy_msg.buttons.data[JOY_BUTTON_B])
     {
-        setSpeedScale(2.0);
+        setSpeedScale(SPEED_SCALE_LUDICROUS);
     }
 
 #endif
@@ -648,7 +655,7 @@ void moveBase()
             }
             else
             {
-                req_rpm *= -MAX_MANUAL_RPM_REVERSE;
+                req_rpm *= -MAX_MANUAL_RPM_REVERSE * SPEED_SCALE_SLOW;
             }
         }
 
@@ -672,9 +679,18 @@ void moveBase()
 
             digitalWrite(LED_PIN, HIGH);
         }
+
+        // Scale the forward x velocity (intended only for teleop mode)
+        float scaled_x = twist_msg.linear.x;
+        if (scaled_x > 0) {
+            scaled_x *= speed_scale;
+        } else {
+            scaled_x *= SPEED_SCALE_SLOW;
+        }
+
         // get the required rpm for each motor based on required velocities, and base used
         req_rpm = kinematics.getRPM(
-            twist_msg.linear.x * speed_scale,
+            scaled_x,
             twist_msg.linear.y,
             twist_msg.angular.z);
 
