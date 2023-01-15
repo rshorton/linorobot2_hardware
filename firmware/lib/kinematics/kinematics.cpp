@@ -30,7 +30,12 @@ Kinematics::Kinematics(base robot_base, int motor_max_rpm, float max_rpm_ratio,
 
 Kinematics::rpm Kinematics::calculateRPM(float linear_x, float linear_y, float angular_z)
 {
-    float tangential_vel = angular_z * ((wheels_x_distance_ / 2.0) + (wheels_y_distance_ / 2.0));
+    float tangential_vel = 0.0;
+    if (base_platform_ == ACKERMANN) {
+        tangential_vel = angular_z * ((wheels_x_distance_ / 2.0) + (wheels_y_distance_ / 2.0));
+    } else {
+        tangential_vel = angular_z * (wheels_y_distance_ / 2.0);
+    }
 
     //convert m/s to m/min
     float linear_vel_x_mins = linear_x * 60.0;
@@ -87,21 +92,21 @@ Kinematics::rpm Kinematics::calculateRPM(float linear_x, float linear_y, float a
     //rear-right motor
     rpm.motor4 = x_rpm - y_rpm + tan_rpm;
     rpm.motor4 = constrain(rpm.motor4, -max_rpm_, max_rpm_);
-
     return rpm;
 }
 
 Kinematics::rpm Kinematics::getRPM(float linear_x, float linear_y, float angular_z)
 {
-    if(base_platform_ == DIFFERENTIAL_DRIVE || base_platform_ == SKID_STEER)
+    if(base_platform_ == DIFFERENTIAL_DRIVE ||
+       base_platform_ == SKID_STEER)
     {
         linear_y = 0;
     }
     else if(base_platform_ == ACKERMANN)
     {
         return calculateRPM(linear_x, 0.0, 0.0);
-    }    
-    return calculateRPM(linear_x, linear_y, angular_z);;
+    }
+    return calculateRPM(linear_x, linear_y, angular_z);
 }
 
 Kinematics::velocities Kinematics::getVelocities(float steering_angle, int rpm1, int rpm2)

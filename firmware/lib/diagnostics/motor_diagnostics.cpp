@@ -1,10 +1,13 @@
 #include <Arduino.h>
 
+#include "config.h"
+
 #include <micro_ros_platformio.h>
+
 #include <rclc/rclc.h>
 
 #include <std_msgs/msg/float32.h>
-#if defined(ELSABOT_MOTOR_DIAG)
+#if defined(PUBLISH_MOTOR_DIAGS)
 #include <elsabot_custom_messages/msg/motor_diag.h>
 #endif
 
@@ -21,7 +24,7 @@ MotorDiags::MotorDiags():
 
 void MotorDiags::create(rcl_node_t &node, int index)
 {
-#if defined(ELSABOT_MOTOR_DIAG)
+#if defined(PUBLISH_MOTOR_DIAGS)
     if (inited_) {
         return;
     }
@@ -52,7 +55,7 @@ void MotorDiags::destroy(rcl_node_t &node)
 
 void MotorDiags::publish(struct timespec time_stamp, float rpm_req, float rpm_cur, float current, PID const &pid)
 {
-#if defined(ELSABOT_MOTOR_DIAG)
+#if defined(PUBLISH_MOTOR_DIAGS)
     if (!inited_) {
         return;
     }

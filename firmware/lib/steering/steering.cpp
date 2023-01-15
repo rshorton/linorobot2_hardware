@@ -12,8 +12,9 @@ namespace
     const long DEF_UPDATE_PERIOD_MS = 50;
 }
 
-Steering::Steering(uint8_t pin_left_limit_in, uint8_t full_range_steps, uint8_t full_range_deg, float wheel_scale_factor, MotorInterface &motor,
+Steering::Steering(uint8_t pin_left_limit_in, uint8_t left_limit_sensor_pos, uint8_t full_range_steps, uint8_t full_range_deg, float wheel_scale_factor, MotorInterface &motor,
                    Encoder &enc_shaft, Encoder &enc_wheel, PID &pid) : pin_left_limit_in_(pin_left_limit_in),
+                                                                       left_limit_sensor_pos_(left_limit_sensor_pos),
                                                                        limit_left_(-full_range_steps / 2),
                                                                        limit_right_(full_range_steps / 2),
                                                                        steps_per_deg_((float)full_range_steps/(float)full_range_deg),
@@ -117,7 +118,15 @@ void Steering::set_wheel_pos(int8_t pos)
 
 int8_t Steering::get_wheel_pos()
 {
-    return (float)enc_wheel_.read() * wheel_scale_factor_;
+    int8_t pos = (float)enc_wheel_.read() / wheel_scale_factor_;
+    if (pos < limit_left_) {
+        pos = limit_left_;
+        set_wheel_pos(pos);
+    } else if (pos > limit_right_) {
+        pos = limit_right_;
+        set_wheel_pos(pos);
+    }
+    return pos;
 }
 
 void Steering::homing_failed()
@@ -149,7 +158,7 @@ long Steering::homing_state_machine()
             Serial.println("Steering at left limit");
 #endif            
             motor_.spin(0);
-            enc_shaft_.write(limit_left_);            
+            enc_shaft_.write(left_limit_sensor_pos_);            
             homing_state_ = HomingState::kCentering;
             break;
         }
@@ -158,7 +167,7 @@ long Steering::homing_state_machine()
         if (diff >= 0)
         {
             target_pos_--;
-            if (target_pos_ < 2*limit_left_ - 1) {
+            if (target_pos_ < 2*left_limit_sensor_pos_ - 1) {
 #if defined(DEBUG_PRINTS)            
                 Serial.println("Error, failed to find left limit");
 #endif                

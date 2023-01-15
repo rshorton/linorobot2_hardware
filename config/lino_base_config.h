@@ -17,19 +17,19 @@
 
 // Define to enable motor diag support for publishing
 // motor status for plotting
-#undef ELSABOT_MOTOR_DIAG
+#define PUBLISH_MOTOR_DIAGS
 
 #define LED_PIN 13 //used for debugging status
 
 //uncomment the base you're building
 //#define LINO_BASE DIFFERENTIAL_DRIVE     // 2WD and Tracked robot w/ 2 motors
-#define LINO_BASE SKID_STEER               // 4WD robot
+//#define LINO_BASE SKID_STEER             // 4WD robot
 // #define LINO_BASE MECANUM               // Mecanum drive robot
 
 //uncomment the motor driver you're using
 //#define USE_GENERIC_2_IN_MOTOR_DRIVER    // Motor drivers with 2 Direction Pins(INA, INB) and 1 PWM(ENABLE) pin ie. L298, L293, VNH5019
-//#define USE_GENERIC_1_IN_MOTOR_DRIVER      // Motor drivers with 1 Direction Pin(INA) and 1 PWM(ENABLE) pin.
-#define USE_BTS7960_MOTOR_DRIVER        // BTS7970 Motor Driver
+//#define USE_GENERIC_1_IN_MOTOR_DRIVER    // Motor drivers with 1 Direction Pin(INA) and 1 PWM(ENABLE) pin.
+#define USE_BTS7960_MOTOR_DRIVER           // BTS7970 Motor Driver
 // #define USE_ESC_MOTOR_DRIVER            // Motor ESC for brushless motors
 
 //uncomment the IMU you're using
@@ -40,7 +40,7 @@
 
 #define K_P 0.6                             // P constant
 #define K_I 0.3                             // I constant
-#define K_D 0.5                             // D constant
+#define K_D 1.5                             // D constant
 
 /*
 ROBOT ORIENTATION
@@ -50,8 +50,7 @@ ROBOT ORIENTATION
          BACK
 */
 
-//define your robot' specs here
-#define MOTOR_MAX_RPM 186                   // motor's max RPM          
+#define MOTOR_MAX_RPM 150                   // motor's max RPM          
 #define MAX_RPM_RATIO 0.95                  // max RPM allowed for each MAX_RPM_ALLOWED = MOTOR_MAX_RPM * MAX_RPM_RATIO          
 #define MOTOR_OPERATING_VOLTAGE 12          // motor's operating voltage (used to calculate max RPM)
 #define MOTOR_POWER_MAX_VOLTAGE 18          // max voltage of the motor's power source (used to calculate max RPM)
@@ -70,11 +69,13 @@ ROBOT ORIENTATION
 #define PWM_BITS 10                         // PWM Resolution of the microcontroller
 #define PWM_FREQUENCY 20000                 // PWM Frequency
 
-#define STEERING_FULL_RANGE_STEPS 28        // Steering range in steering encoder units
+// Fix - move left sensor to full left position
+#define STEERING_LEFT_SENSOR_POS  -14       // Left sensor position in encoder units (0 centered, - => left, + => right)
+#define STEERING_FULL_RANGE_STEPS 34        // Steering range in steering encoder units
 #define STEERING_FULL_RANGE_DEG   68        // Steering range in degrees
 
-#define MIN_ACCEL_IN 750                    // Accel pedal analog inp value not pressed
-#define MAX_ACCEL_IN 300                    // Accel pedal analog inp value full press
+#define MIN_ACCEL_IN 750                    // Accel pedal analog input value when not pressed
+#define MAX_ACCEL_IN 300                    // Accel pedal analog input value when fully pressed
 
 // INVERT ENCODER COUNTS
 #define MOTOR1_ENCODER_INV true
@@ -201,10 +202,10 @@ ROBOT ORIENTATION
 #define ACCEL_LEVEL_IN      A17 // Accelerator level ~2.5 (none)-> ~0(max)
 #define IGN_SW_IN           10  // Active hi (switch pressed)
 #define STEER_LEFT_LIMIT_IN 3   // Active low left limit Hall sensor
-#define ESTOP_IN            7   // Active low (estop pressed or rf sw off)
+#define ESTOP_IN            7   // Active low (emergency stop button pressed or RF switch is off)
 
 // I2C addresses
 #define IIC_ADDR_INA226_CTRL_BAT    0x40  // INA226 connected to control circuitry battery
-#define IIC_ADDR_INA226_DRIVE_BAT   0x41  // INA226 connected to motors battery (shunt not connected)
+#define IIC_ADDR_INA226_DRIVE_BAT   0x41  // INA226 connected to motor battery (shunt not connected)
 
 #endif

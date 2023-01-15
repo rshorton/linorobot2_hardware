@@ -28,7 +28,7 @@ public:
     };
 
 public:
-    Steering(uint8_t pin_left_limit_in, uint8_t full_range_steps, uint8_t full_range_deg, float wheel_scale_factor, MotorInterface &motor,
+    Steering(uint8_t pin_left_limit_in, uint8_t left_limit_sensor_pos_, uint8_t full_range_steps, uint8_t full_range_deg, float wheel_scale_factor, MotorInterface &motor,
              Encoder &enc_shaft, Encoder &enc_wheel, PID &pid);
 
     State get_state() const;
@@ -65,6 +65,7 @@ private:
 
 private:
     uint8_t pin_left_limit_in_;
+    int8_t left_limit_sensor_pos_;
     int8_t limit_left_;
     int8_t limit_right_;
     float steps_per_deg_;

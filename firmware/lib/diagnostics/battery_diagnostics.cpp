@@ -4,10 +4,6 @@
 #include <rclc/rclc.h>
 
 #include <std_msgs/msg/float32.h>
-#if defined(ELSABOT_MOTOR_DIAG)
-#include <elsabot_custom_messages/msg/motor_diag.h>
-#endif
-
 #include <micro_ros_utilities/type_utilities.h>
 #include <micro_ros_utilities/string_utilities.h>
 

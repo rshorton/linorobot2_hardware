@@ -45,10 +45,10 @@
 #include "accel_pedal.h"
 #include "INA226.h"
 
-#undef PUBLISH_MOTOR_DIAGS // Define to publish the PID status for plotting via RQT
-#undef TUNE_PID_LOOP       // Allow tweaking of PID parameters via topic write
-#define MAN_CONTROL
-#define JOY_BUTTON_ENABLES_MAN_CONTROL
+#define TUNE_PID_LOOP // Allow tweaking of PID parameters via topic write
+#define STEERING_PID_TWEAKS
+#define DRIVER_CONTROL
+#define JOY_BUTTON_ENABLES_DRIVER_CONTROL
 
 const int ONE_SEC_IN_US = 1000000;
 const int ONE_SEC_IN_MS = 1000;
@@ -57,9 +57,9 @@ const int BATTERY_DIAG_PUBLISH_PERIOD_MS = 10000;
 
 const float SPEED_SCALE_TURTLE = 0.25;
 const float SPEED_SCALE_SLOW = 0.5;
-const float SPEED_SCALE_NORMAL = 0.75;
-const float SPEED_SCALE_LUDICROUS = 1.0;
-const float SPEED_SCALE_CRAZY_LUDICROUS = 1.25;
+const float SPEED_SCALE_NORMAL = 1.0;
+const float SPEED_SCALE_LUDICROUS = 2.0;
+const float SPEED_SCALE_CRAZY_LUDICROUS = 2.5;
 
 // Game controller buttons
 const int JOY_BUTTON_LB = 4; // left side, closest to top
@@ -67,6 +67,17 @@ const int JOY_BUTTON_X = 2;  // X
 const int JOY_BUTTON_Y = 3;  // Y
 const int JOY_BUTTON_A = 0;  // A
 const int JOY_BUTTON_B = 1;  // B
+
+const int JOY_AXIS_LEFT_STICK_LR = 0;
+const int JOY_AXIS_LEFT_STICK_UD = 1;
+const int JOY_AXIS_RIGHT_STICK_LR = 2;
+const int JOY_AXIS_RIGHT_STICK_UD = 3;
+
+const int JOY_AXIS_RIGHT_TRIGGER_BUTTON = 4;
+const int JOY_AXIS_LEFT_TRIGGER_BUTTON = 5;
+
+const int JOY_AXIS_DPAD_LR = 6;
+const int JOY_AXIS_DPAD_UD = 7;
 
 const int ERR_BLINK_GENERAL = 2;
 const int ERR_BLINK_IMU = 3;
@@ -99,13 +110,14 @@ rcl_publisher_t odom_publisher;
 rcl_publisher_t imu_publisher;
 rcl_subscription_t twist_subscriber;
 
-#if defined(MAN_CONTROL)
-rcl_subscription_t manual_control_subscriber;
+#if defined(DRIVER_CONTROL)
+rcl_subscription_t driver_control_subscriber;
 rcl_subscription_t joy_subscriber;
 
-std_msgs__msg__Bool manual_control_msg;
+std_msgs__msg__Bool driver_control_msg;
 sensor_msgs__msg__Joy joy_msg;
 int32_t button_data[9];
+float axes_data[8];
 #endif
 
 rcl_subscription_t speed_scale_subscriber;
@@ -134,10 +146,18 @@ rcl_timer_t battery_timer;
 
 unsigned long long time_offset = 0;
 unsigned long prev_cmd_time = 0;
+unsigned long prev_joy_cmd_time = 0;
 unsigned long prev_odom_update = 0;
 bool micro_ros_init_successful = false;
-bool manual_control = false;
+
+// true to enable child driver using steering wheel and accel pedal
+bool driver_control = false; 
 float speed_scale = SPEED_SCALE_SLOW;
+
+
+bool ackermann_teleop = true;
+float speed_x_in = 0.0;
+float steering_angle_in = 0.0;
 
 Kinematics::rpm req_rpm;
 
@@ -168,7 +188,7 @@ const int STR_PWM_MIN = -1000;
 const int STR_PWM_MAX = 1000;
 PID motor_str_pid(STR_PWM_MIN, STR_PWM_MAX, 40, 10.0, 50.0);
 
-Steering steering(STEER_LEFT_LIMIT_IN, STEERING_FULL_RANGE_STEPS, STEERING_FULL_RANGE_DEG, 1.5,
+Steering steering(STEER_LEFT_LIMIT_IN, STEERING_LEFT_SENSOR_POS, STEERING_FULL_RANGE_STEPS, STEERING_FULL_RANGE_DEG, 1.5,
                   motor_str_controller, str_motor_enc, str_wheel_enc, motor_str_pid);
 
 AccelPedal accel_pedal(ACCEL_SW_IN, 0, ACCEL_LEVEL_IN, MIN_ACCEL_IN, MAX_ACCEL_IN, ONE_SEC_IN_MS / 20, 0.5);
@@ -322,8 +342,8 @@ void setSpeedScale(float scale)
     }
 }
 
-#if defined(MAN_CONTROL)
-void setManualControl(bool enable)
+#if defined(DRIVER_CONTROL)
+void setDriverControl(bool enable)
 {
     if (enable)
     {
@@ -335,26 +355,28 @@ void setManualControl(bool enable)
     }
 }
 
-void manualControlCallback(const void *msgin)
+void driverControlCallback(const void *msgin)
 {
-    if (manual_control != manual_control_msg.data)
+    if (driver_control != driver_control_msg.data)
     {
-        manual_control = manual_control_msg.data;
-        setManualControl(manual_control);
+        driver_control = driver_control_msg.data;
+        setDriverControl(driver_control);
     }
 }
+#endif
 
 void joyCallback(const void *msgin)
 {
     RCLC_UNUSED(msgin);
 
-#if defined(JOY_BUTTON_ENABLES_MAN_CONTROL)
+#if defined(JOY_BUTTON_ENABLES_DRIVER_CONTROL)
     bool enable = (bool)joy_msg.buttons.data[JOY_BUTTON_LB];
-    if (enable != manual_control)
+    if (enable != driver_control)
     {
-        manual_control = enable;
-        setManualControl(enable);
+        driver_control = enable;
+        setDriverControl(enable);
     }
+#endif
 
     if (joy_msg.buttons.data[JOY_BUTTON_X])
     {
@@ -369,9 +391,21 @@ void joyCallback(const void *msgin)
         setSpeedScale(SPEED_SCALE_LUDICROUS);
     }
 
-#endif
+    ackermann_teleop = joy_msg.axes.data[JOY_AXIS_LEFT_TRIGGER_BUTTON] == -1;
+    if (ackermann_teleop)
+    {
+        digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+        prev_joy_cmd_time = millis();
+
+        speed_x_in = joy_msg.axes.data[JOY_AXIS_LEFT_STICK_UD] * speed_scale;
+        steering_angle_in = joy_msg.axes.data[JOY_AXIS_RIGHT_STICK_LR] * STEERING_FULL_RANGE_DEG / 2 / 180.0 * M_PI;
+    }
+    else
+    {
+        speed_x_in = 0.0;
+        steering_angle_in = 0.0;
+    }
 }
-#endif
 
 void speedScaleCalback(const void *msgin)
 {
@@ -381,26 +415,38 @@ void speedScaleCalback(const void *msgin)
 #if defined(TUNE_PID_LOOP)
 void pidKpCallback(const void *msgin)
 {
+#if defined(STEERING_PID_TWEAKS)
+    motor_str_pid.updateKp(pid_kp_msg.data);
+#else
     motor1_pid.updateKp(pid_kp_msg.data);
     motor2_pid.updateKp(pid_kp_msg.data);
     motor3_pid.updateKp(pid_kp_msg.data);
     motor4_pid.updateKp(pid_kp_msg.data);
+#endif
 }
 
 void pidKdCallback(const void *msgin)
 {
+#if defined(STEERING_PID_TWEAKS)
+    motor_str_pid.updateKp(pid_kd_msg.data);
+#else
     motor1_pid.updateKd(pid_kd_msg.data);
     motor2_pid.updateKd(pid_kd_msg.data);
     motor3_pid.updateKd(pid_kd_msg.data);
     motor4_pid.updateKd(pid_kd_msg.data);
+#endif
 }
 
 void pidKiCallback(const void *msgin)
 {
+#if defined(STEERING_PID_TWEAKS)
+    motor_str_pid.updateKp(pid_ki_msg.data);
+#else
     motor1_pid.updateKi(pid_ki_msg.data);
     motor2_pid.updateKi(pid_ki_msg.data);
     motor3_pid.updateKi(pid_ki_msg.data);
     motor4_pid.updateKi(pid_ki_msg.data);
+#endif
 }
 #endif
 
@@ -459,16 +505,19 @@ void createEntities()
         "pid_ki"));
 #endif
 
-#if defined(MAN_CONTROL)
+#if defined(DRIVER_CONTROL)
     RCCHECK(rclc_subscription_init_default(
-        &manual_control_subscriber,
+        &driver_control_subscriber,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
-        "manual_control"));
+        "driver_control"));
 
     joy_msg.buttons.data = button_data;
     joy_msg.buttons.size = 0;
     joy_msg.buttons.capacity = sizeof(button_data);
+    joy_msg.axes.data = axes_data;
+    joy_msg.axes.size = 0;
+    joy_msg.axes.capacity = sizeof(axes_data);
 
     RCCHECK(rclc_subscription_init_default(
         &joy_subscriber,
@@ -504,12 +553,12 @@ void createEntities()
     // 9 handesl = 7 subscriptions + 2 timers  (including ifdef'ed subs)
     RCCHECK(rclc_executor_init(&executor, &support.context, 9, &allocator));
 
-#if defined(MAN_CONTROL)
+#if defined(DRIVER_CONTROL)
     RCCHECK(rclc_executor_add_subscription(
         &executor,
-        &manual_control_subscriber,
-        &manual_control_msg,
-        &manualControlCallback,
+        &driver_control_subscriber,
+        &driver_control_msg,
+        &driverControlCallback,
         ON_NEW_DATA));
 
     RCCHECK(rclc_executor_add_subscription(
@@ -578,8 +627,8 @@ void destroyEntities()
     rcl_publisher_fini(&odom_publisher, &node);
     rcl_publisher_fini(&imu_publisher, &node);
 
-#if defined(MAN_CONTROL)
-    rcl_subscription_fini(&manual_control_subscriber, &node);
+#if defined(DRIVER_CONTROL)
+    rcl_subscription_fini(&driver_control_subscriber, &node);
     rcl_subscription_fini(&joy_subscriber, &node);
 #endif
     rcl_subscription_fini(&speed_scale_subscriber, &node);
@@ -629,6 +678,17 @@ bool directionChange(float cur_rpm, float req_rpm)
     return abs(cur_rpm) > 0.1 && sgn(cur_rpm) != sgn(req_rpm);
 }
 
+// For converting twist msg to Ackermann x vel and steering angle
+float rotational_vel_to_steering_angle(float x_vel, float w_vel, float wheelbase)
+{
+    if (x_vel == 0.0 || w_vel == 0.0)
+    {
+        return 0.0;
+    }
+    float radius = x_vel / w_vel;
+    return atan2(radius, wheelbase);
+}
+
 void moveBase()
 {
     // get the current speed of each motor
@@ -637,8 +697,8 @@ void moveBase()
 
     bool estop = estopAsserted();
 
-#if defined(MAN_CONTROL)
-    if (manual_control)
+#if defined(DRIVER_CONTROL)
+    if (driver_control)
     {
         accel_pedal.update();
         float level = accel_pedal.get_level();
@@ -670,29 +730,45 @@ void moveBase()
     else
 #endif
     {
-        // brake if there's no command received, or when it's only the first command sent
-        if (((millis() - prev_cmd_time) >= 200))
+        float speed_x = 0.0;
+        float steering_angle = 0.0;
+
+        if (ackermann_teleop)
         {
-            twist_msg.linear.x = 0.0;
-            twist_msg.linear.y = 0.0;
-            twist_msg.angular.z = 0.0;
+            if (((millis() - prev_joy_cmd_time) > 200))
+            {
+                digitalWrite(LED_PIN, HIGH);
+            }
+            else
+            {
+                speed_x = speed_x_in;
+                steering_angle = steering_angle_in;
+            }
+        }
+        else
+        {
+            // Handle twist msg input (driven by the twist telop or a
+            // navigation planner)
 
-            digitalWrite(LED_PIN, HIGH);
+            // brake if there's no command received, or when it's only the first command sent
+            if (((millis() - prev_cmd_time) > 200))
+            {
+                digitalWrite(LED_PIN, HIGH);
+            }
+            else
+            {
+                speed_x = twist_msg.linear.x;
+                // Calculate steering angle from x velocity, twist and wheelbase
+                // http://wiki.ros.org/teb_local_planner/Tutorials/Planning%20for%20car-like%20robots
+                steering_angle = rotational_vel_to_steering_angle(twist_msg.linear.x, twist_msg.angular.z, FR_WHEELS_DISTANCE);
+            }
         }
 
-        // Scale the forward x velocity (intended only for teleop mode)
-        float scaled_x = twist_msg.linear.x;
-        if (scaled_x > 0) {
-            scaled_x *= speed_scale;
-        } else {
-            scaled_x *= SPEED_SCALE_SLOW;
-        }
-
-        // get the required rpm for each motor based on required velocities, and base used
+        // get the required rpm for each motor based on required velocities
         req_rpm = kinematics.getRPM(
-            scaled_x,
-            twist_msg.linear.y,
-            twist_msg.angular.z);
+            speed_x,
+            0,
+            steering_angle);
 
         // Don't drive motor in the opposite direction until it stops
         if (directionChange(current_rpm1, req_rpm.motor1) || estop)
@@ -712,7 +788,7 @@ void moveBase()
 
         if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
         {
-            steer(twist_msg.angular.z);
+            steer(steering_angle);
         }
     }
 
