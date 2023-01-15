@@ -24,8 +24,11 @@ Phase 1
 * 433 MHz remote control relay
 * Motor power relay
 * RPi4
+* Functionality
+  * Game controller control
+  * Driver (kid) control
 
-Phase 2 (future)
+Phase 2 (future/WIP)
 * Seeed odyssey j4125 CPU
 * RPLidar A1
 * OAK-D camera with and pan and tilt servos
@@ -35,9 +38,18 @@ Phase 2 (future)
 * Various DC-to-DC converters
 * 10-port USB hub
 * GPS
+* Functionality
+  * Same as phase 1
+  * Navigation control
+  * Interactive functionality using Camera AI and voice control (as for previous projects)
 
 See this WIP project for the ROS2 bring-up scripts:
 https://github.com/rshorton/elsabot_jeep
+
+Phase 2 pictures
+
+![Elsabot Jeep](docs/jeep_phase2_pic1.jpg)
+![Elsabot Jeep](docs/jeep_phase2_pic2.jpg)
 
 
 
