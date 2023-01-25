@@ -69,10 +69,16 @@ ROBOT ORIENTATION
 #define PWM_BITS 10                         // PWM Resolution of the microcontroller
 #define PWM_FREQUENCY 20000                 // PWM Frequency
 
-// Fix - move left sensor to full left position
-#define STEERING_LEFT_SENSOR_POS  -14       // Left sensor position in encoder units (0 centered, - => left, + => right)
-#define STEERING_FULL_RANGE_STEPS 34        // Steering range in steering encoder units
-#define STEERING_FULL_RANGE_DEG   68        // Steering range in degrees
+#define STR_PID_P   40.0                    // Steering motor PID values 
+#define STR_PID_I   10.0
+#define STR_PID_D   70.0
+
+#define STEERING_MAX_RANGE_STEPS  42        // Steering max range in steering encoder units
+#define STEERING_FULL_RANGE_STEPS 40        // Steering usable range in steering encoder units
+#define STEERING_FULL_RANGE_DEG   48        // Steering range in degrees
+#define STEERING_HALF_RANGE_DEG   (STEERING_FULL_RANGE_DEG/2)
+                                            // Left sensor position in encoder units (0 centered, - => left, + => right)
+#define STEERING_LEFT_SENSOR_POS  (-STEERING_MAX_RANGE_STEPS/2)    
 
 #define MIN_ACCEL_IN 750                    // Accel pedal analog input value when not pressed
 #define MAX_ACCEL_IN 300                    // Accel pedal analog input value when fully pressed

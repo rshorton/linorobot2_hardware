@@ -57,9 +57,9 @@ Motor motor_str_controller(PWM_FREQUENCY, PWM_BITS, MOTOR_STR_INV, MOTOR_STR_PWM
 
 const int STR_PWM_MIN = -1000;
 const int STR_PWM_MAX = 1000;
-PID motor_str_pid(STR_PWM_MIN, STR_PWM_MAX, 40, 10.0, 50.0);
+PID motor_str_pid(STR_PWM_MIN, STR_PWM_MAX, STR_PID_P, STR_PID_I, STR_PID_D);
 
-Steering steering(STEER_LEFT_LIMIT_IN, STEERING_FULL_RANGE_STEPS, STEERING_FULL_RANGE_DEG, 1.5,
+Steering steering(STEER_LEFT_LIMIT_IN, STEERING_LEFT_SENSOR_POS, STEERING_FULL_RANGE_STEPS, STEERING_FULL_RANGE_DEG, 1.5,
                   motor_str_controller, str_motor_enc, str_wheel_enc, motor_str_pid);
 
 AccelPedal accel_pedal(ACCEL_SW_IN, 0, ACCEL_LEVEL_IN, MIN_ACCEL_IN, MAX_ACCEL_IN, ONE_SEC_IN_MS/20, 0.5);
@@ -68,7 +68,7 @@ INA226 pwr_mon_ctrl_bat;
 INA226 pwr_mon_drive_bat;
 
 Kinematics kinematics(
-    Kinematics::LINO_BASE,
+    Kinematics::ACKERMANN,
     MOTOR_MAX_RPM,
     MAX_RPM_RATIO,
     MOTOR_OPERATING_VOLTAGE,
@@ -260,7 +260,7 @@ void testSteering(bool external)
         steering.home();
         while (steering.get_state() == Steering::State::kHoming)
         {
-            steering.update();
+            steering.update(true);
         }
     }
 
@@ -308,7 +308,7 @@ void testSteering(bool external)
                     }
                 }
             }
-            steering.update();
+            steering.update(true);
         }
         if (!steering.enable_steering_wheel())
         {
@@ -321,7 +321,10 @@ void testSteering(bool external)
 
     while (true)
     {
-        steering.update();
+        steering.update(true);
+        float pos = steering.get_position();
+        Serial.println(pos);
+
     }
 }
 
@@ -345,7 +348,7 @@ void testAccelerator()
             if (!dir) {
                 level *= -1;
             }
-            float req_rpm = level * MAX_MANUAL_RPM;
+            float req_rpm = level * MOTOR_MAX_RPM;
 
             float current_rpm1 = motor1_encoder.getRPM();
             float current_rpm2 = motor2_encoder.getRPM();

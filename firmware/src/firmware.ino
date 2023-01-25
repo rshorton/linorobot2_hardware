@@ -56,8 +56,8 @@ const int ONE_SEC_IN_MS = 1000;
 const int BATTERY_DIAG_PUBLISH_PERIOD_MS = 10000;
 
 const float SPEED_SCALE_TURTLE = 0.25;
-const float SPEED_SCALE_SLOW = 0.5;
-const float SPEED_SCALE_NORMAL = 1.0;
+const float SPEED_SCALE_SLOW = 0.35;
+const float SPEED_SCALE_NORMAL = 0.75;
 const float SPEED_SCALE_LUDICROUS = 2.0;
 const float SPEED_SCALE_CRAZY_LUDICROUS = 2.5;
 
@@ -186,7 +186,7 @@ Motor motor_str_controller(PWM_FREQUENCY, PWM_BITS, MOTOR_STR_INV, MOTOR_STR_PWM
 
 const int STR_PWM_MIN = -1000;
 const int STR_PWM_MAX = 1000;
-PID motor_str_pid(STR_PWM_MIN, STR_PWM_MAX, 40, 10.0, 50.0);
+PID motor_str_pid(STR_PWM_MIN, STR_PWM_MAX, STR_PID_P, STR_PID_I, STR_PID_D);
 
 Steering steering(STEER_LEFT_LIMIT_IN, STEERING_LEFT_SENSOR_POS, STEERING_FULL_RANGE_STEPS, STEERING_FULL_RANGE_DEG, 1.5,
                   motor_str_controller, str_motor_enc, str_wheel_enc, motor_str_pid);
@@ -675,7 +675,7 @@ float getSteeringPos()
 
 bool directionChange(float cur_rpm, float req_rpm)
 {
-    return abs(cur_rpm) > 0.1 && sgn(cur_rpm) != sgn(req_rpm);
+    return abs(cur_rpm) > 1.0 && sgn(cur_rpm) != sgn(req_rpm);
 }
 
 // For converting twist msg to Ackermann x vel and steering angle
@@ -770,6 +770,15 @@ void moveBase()
             0,
             steering_angle);
 
+        // Test - Does this help?
+        // Slow the inside wheel a bit to help reduce the turning radius.
+        float str_motor_adj = (STEERING_HALF_RANGE_DEG - (min(STEERING_HALF_RANGE_DEG, abs(steering_angle))))/STEERING_HALF_RANGE_DEG;
+        if (steering_angle < 0) {
+            req_rpm.motor2 *= str_motor_adj;
+        } else {
+            req_rpm.motor1 *= str_motor_adj;
+        }
+
         // Don't drive motor in the opposite direction until it stops
         if (directionChange(current_rpm1, req_rpm.motor1) || estop)
         {
@@ -792,7 +801,6 @@ void moveBase()
         }
     }
 
-    // Fix - this stuff is probably incorrect for Ackermann/this robot
     Kinematics::velocities current_vel;
     if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
     {
