@@ -69,16 +69,19 @@ ROBOT ORIENTATION
 #define PWM_BITS 10                         // PWM Resolution of the microcontroller
 #define PWM_FREQUENCY 20000                 // PWM Frequency
 
-#define STR_PID_P   40.0                    // Steering motor PID values 
-#define STR_PID_I   10.0
-#define STR_PID_D   70.0
+#define STR_PID_P   0.5                    // Steering motor PID values 
+#define STR_PID_I   1.0
+#define STR_PID_D   5.0
 
-#define STEERING_MAX_RANGE_STEPS  42        // Steering max range in steering encoder units
-#define STEERING_FULL_RANGE_STEPS 40        // Steering usable range in steering encoder units
-#define STEERING_FULL_RANGE_DEG   48        // Steering range in degrees
+#define STEERING_MAX_RANGE_STEPS  456       // Steering max range in steering encoder units
+#define STEERING_FULL_RANGE_STEPS 456       // Steering usable range in steering encoder units
+
+#define WHEEL_SCALING_FACTOR      10.0
+
+#define STEERING_FULL_RANGE_DEG   53        // Steering range in degrees
 #define STEERING_HALF_RANGE_DEG   (STEERING_FULL_RANGE_DEG/2)
                                             // Left sensor position in encoder units (0 centered, - => left, + => right)
-#define STEERING_LEFT_SENSOR_POS  (-STEERING_MAX_RANGE_STEPS/2)    
+#define STEERING_RIGHT_SENSOR_POS (STEERING_MAX_RANGE_STEPS/2)    
 
 #define MIN_ACCEL_IN 750                    // Accel pedal analog input value when not pressed
 #define MAX_ACCEL_IN 300                    // Accel pedal analog input value when fully pressed
@@ -105,8 +108,8 @@ ROBOT ORIENTATION
 #define STEERWHL_ENCODER_A 30
 #define STEERWHL_ENCODER_B 31
 
-#define STEERMTR_ENCODER_A 26
-#define STEERMTR_ENCODER_B 27
+#define STEERMTR_ENCODER_A 27
+#define STEERMTR_ENCODER_B 26
 
 // MOTOR PINS
 #ifdef USE_GENERIC_2_IN_MOTOR_DRIVER

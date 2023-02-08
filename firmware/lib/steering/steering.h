@@ -28,7 +28,7 @@ public:
     };
 
 public:
-    Steering(uint8_t pin_left_limit_in, uint8_t left_limit_sensor_pos_, uint8_t full_range_steps, uint8_t full_range_deg, float wheel_scale_factor, MotorInterface &motor,
+    Steering(uint8_t pin_left_limit_in, uint16_t right_limit_sensor_pos, uint16_t full_range_steps, uint16_t full_range_deg, float wheel_scale_factor, MotorInterface &motor,
              Encoder &enc_shaft, Encoder &enc_wheel, PID &pid);
 
     State get_state() const;
@@ -38,16 +38,16 @@ public:
     bool enable_steering_wheel();
     bool enable_external_control();
 
-    int8_t get_position() const { return target_pos_; }
-    int8_t set_position(int8_t target_pos);
-    int8_t get_left_pos() const { return limit_left_; }
-    int8_t get_right_pos() const { return limit_right_; }
+    int16_t get_position() const { return target_pos_; }
+    int16_t set_position(int16_t target_pos);
+    int16_t get_left_pos() const { return limit_left_; }
+    int16_t get_right_pos() const { return limit_right_; }
 
     float get_position_deg() const { return (float)target_pos_/steps_per_deg_; }
     float set_position_deg(float target_pos_deg);
 
-    int8_t get_actual_pos() const { return shaft_pos_; }
-    int8_t get_actual_pos_deg() const { return (float)shaft_pos_/steps_per_deg_; }
+    int16_t get_actual_pos() const { return shaft_pos_; }
+    float get_actual_pos_deg() const { return (float)shaft_pos_/steps_per_deg_; }
 
     void update(bool enable);
 
@@ -56,8 +56,8 @@ private:
     long steering_wheel_update();
     long external_control_update();
 
-    void set_wheel_pos(int8_t pos);
-    int8_t get_wheel_pos();
+    void set_wheel_pos(int16_t pos);
+    int16_t get_wheel_pos();
 
     long apply_position();
 
@@ -65,9 +65,9 @@ private:
 
 private:
     uint8_t pin_left_limit_in_;
-    int8_t left_limit_sensor_pos_;
-    int8_t limit_left_;
-    int8_t limit_right_;
+    int16_t right_limit_sensor_pos_;
+    int16_t limit_left_;
+    int16_t limit_right_;
     float steps_per_deg_;
     float wheel_scale_factor_;
 
@@ -77,13 +77,13 @@ private:
     PID &pid_;
 
     State main_state_;
-    int8_t shaft_pos_;
+    int16_t shaft_pos_;
     HomingState homing_state_;
 
     bool homed_;
 
-    int8_t target_pos_;
-    int8_t last_pos_change_;
+    int16_t target_pos_;
+    int16_t last_pos_change_;
     unsigned long next_update_;
 };
 

@@ -59,7 +59,7 @@ const int STR_PWM_MIN = -1000;
 const int STR_PWM_MAX = 1000;
 PID motor_str_pid(STR_PWM_MIN, STR_PWM_MAX, STR_PID_P, STR_PID_I, STR_PID_D);
 
-Steering steering(STEER_LEFT_LIMIT_IN, STEERING_LEFT_SENSOR_POS, STEERING_FULL_RANGE_STEPS, STEERING_FULL_RANGE_DEG, 1.5,
+Steering steering(STEER_LEFT_LIMIT_IN, STEERING_RIGHT_SENSOR_POS, STEERING_FULL_RANGE_STEPS, STEERING_FULL_RANGE_DEG, WHEEL_SCALING_FACTOR,
                   motor_str_controller, str_motor_enc, str_wheel_enc, motor_str_pid);
 
 AccelPedal accel_pedal(ACCEL_SW_IN, 0, ACCEL_LEVEL_IN, MIN_ACCEL_IN, MAX_ACCEL_IN, ONE_SEC_IN_MS/20, 0.5);
@@ -164,6 +164,10 @@ void loop()
             Serial.print(pwr_mon_ctrl_bat.readBusVoltage());
             Serial.print(", ");
             Serial.print(pwr_mon_ctrl_bat.readShuntCurrent());
+            Serial.print(", steering enc: ");
+            Serial.print(str_motor_enc.read());
+            Serial.print(", steering limit: ");
+            Serial.print(digitalRead(STEER_LEFT_LIMIT_IN));
         }
     }
 }
@@ -287,14 +291,14 @@ void testSteering(bool external)
                 char character = Serial.read();
                 Serial.print(character);
                 delay(1);
-                int8_t delta = 0;
+                int16_t delta = 0;
                 if (character == 'l')
                 {
-                    delta = -1;
+                    delta = -4;
                 }
                 else if (character == 'r')
                 {
-                    delta = 1;
+                    delta = 4;
                 }
                 else if (character == 'e')
                 {
@@ -319,12 +323,15 @@ void testSteering(bool external)
 
     Serial.println("Steering wheel control mode enabled.  Turn the steering wheel to change steering...");
 
+    unsigned long last_status = micros();
     while (true)
     {
         steering.update(true);
-        float pos = steering.get_position();
-        Serial.println(pos);
-
+        if (micros() - last_status >= ONE_SEC_IN_US) {
+            last_status = micros();
+            float pos = steering.get_position();
+            Serial.println(pos);
+        }
     }
 }
 
