@@ -17,7 +17,7 @@
 
 // Define to enable motor diag support for publishing
 // motor status for plotting
-#define PUBLISH_MOTOR_DIAGS
+#undef PUBLISH_MOTOR_DIAGS
 
 #define LED_PIN 13 //used for debugging status
 

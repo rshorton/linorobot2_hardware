@@ -29,6 +29,7 @@
 #include <sensor_msgs/msg/joy.h>
 
 #include "config.h"
+#include "logger.h"
 #include "motor.h"
 #include "kinematics.h"
 #include "pid.h"
@@ -52,6 +53,8 @@
 
 const int ONE_SEC_IN_US = 1000000;
 const int ONE_SEC_IN_MS = 1000;
+
+const float MIN_MOVING_RPM_THRESH = 1.0;
 
 const int BATTERY_DIAG_PUBLISH_PERIOD_MS = 10000;
 
@@ -188,7 +191,7 @@ const int STR_PWM_MIN = -1000;
 const int STR_PWM_MAX = 1000;
 PID motor_str_pid(STR_PWM_MIN, STR_PWM_MAX, STR_PID_P, STR_PID_I, STR_PID_D);
 
-Steering steering(STEER_LEFT_LIMIT_IN, STEERING_LEFT_SENSOR_POS, STEERING_FULL_RANGE_STEPS, STEERING_FULL_RANGE_DEG, 1.5,
+Steering steering(STEER_LEFT_LIMIT_IN, STEERING_RIGHT_SENSOR_POS, STEERING_FULL_RANGE_STEPS, STEERING_FULL_RANGE_DEG, WHEEL_SCALING_FACTOR,
                   motor_str_controller, str_motor_enc, str_wheel_enc, motor_str_pid);
 
 AccelPedal accel_pedal(ACCEL_SW_IN, 0, ACCEL_LEVEL_IN, MIN_ACCEL_IN, MAX_ACCEL_IN, ONE_SEC_IN_MS / 20, 0.5);
@@ -219,6 +222,9 @@ float current_rpm4 = 0.0;
 
 MotorDiags motor1_diags;
 MotorDiags motor2_diags;
+
+MotorDiags steering_diags;
+
 
 bool pwr_relay_on = false;
 
@@ -261,17 +267,6 @@ void setup()
     Serial.begin(115200);
     set_microros_serial_transports(Serial);
 
-    // Home the steering controller
-    digitalWrite(MOTOR_RELAY_PWR_OUT, HIGH);
-    pwr_relay_on = true;
-
-    steering.home();
-    while (steering.get_state() == Steering::State::kHoming)
-    {
-        steering.update(!estopAsserted());
-    }
-    steering.enable_external_control();
-
     flashLED(2);
 }
 
@@ -290,6 +285,7 @@ void loop()
             {
                 createEntities();
                 publishBatteryState();
+                Logger::log_message(Logger::LogLevel::Error, "Micro ROS initialized");
             }
         }
         else if (micro_ros_init_successful)
@@ -312,6 +308,25 @@ void controlCallback(rcl_timer_t *timer, int64_t last_call_time)
     RCLC_UNUSED(last_call_time);
     if (timer != NULL)
     {
+        if (steering.get_state() == Steering::State::kInit)
+        {
+            fullStop();
+            steering.home();
+            return;
+        }
+        else if (steering.get_state() == Steering::State::kHoming)
+        {
+            if (!is_moving())
+            {
+                steering.update(!estopAsserted());
+                if (steering.get_state() != Steering::State::kHoming)
+                {
+                    steering.enable_external_control();
+                }
+            }
+            return;
+        }
+
         moveBase();
         publishData();
     }
@@ -473,11 +488,13 @@ void createEntities()
 
     control_battery_diags.create(node);
     drive_battery_diags.create(node);
+    Logger::create_logger(node);   
 
 #if defined(PUBLISH_MOTOR_DIAGS)
     // create diagnostics publisher
     motor1_diags.create(node, 1);
     motor2_diags.create(node, 2);
+    steering_diags.create(node, 3);
 #endif
 
     RCCHECK_WITH_BLINK_CODE(3, rclc_subscription_init_default(
@@ -550,7 +567,7 @@ void createEntities()
         batteryCallback));
 
     executor = rclc_executor_get_zero_initialized_executor();
-    // 9 handesl = 7 subscriptions + 2 timers  (including ifdef'ed subs)
+    // 9 handles = 7 subscriptions + 2 timers  (including ifdef'ed subs)
     RCCHECK(rclc_executor_init(&executor, &support.context, 9, &allocator));
 
 #if defined(DRIVER_CONTROL)
@@ -618,10 +635,12 @@ void destroyEntities()
 
     control_battery_diags.destroy(node);
     drive_battery_diags.destroy(node);
+    Logger::destroy_logger(node);   
 
 #if defined(PUBLISH_MOTOR_DIAGS)
     motor1_diags.destroy(node);
     motor2_diags.destroy(node);
+    steering_diags.destroy(node);
 #endif
 
     rcl_publisher_fini(&odom_publisher, &node);
@@ -661,6 +680,12 @@ void fullStop()
     motor2_controller.brake();
 }
 
+bool is_moving()
+{
+    return abs(motor1_encoder.getRPM()) > MIN_MOVING_RPM_THRESH ||
+           abs(motor2_encoder.getRPM()) > MIN_MOVING_RPM_THRESH;
+}
+
 float steer(float steering_angle)
 {
     float angle_deg = -steering_angle * 180.0 / M_PI;
@@ -670,7 +695,7 @@ float steer(float steering_angle)
 
 float getSteeringPos()
 {
-    return steering.get_actual_pos_deg() * M_PI / 180.0;
+    return -steering.get_actual_pos_deg() * M_PI / 180.0;
 }
 
 bool directionChange(float cur_rpm, float req_rpm)
@@ -679,6 +704,8 @@ bool directionChange(float cur_rpm, float req_rpm)
 }
 
 // For converting twist msg to Ackermann x vel and steering angle
+// See convertTransRotVelToSteeringAngle() in 
+// https://github.com/rst-tu-dortmund/teb_local_planner/blob/melodic-devel/src/teb_local_planner_ros.cpp
 float rotational_vel_to_steering_angle(float x_vel, float w_vel, float wheelbase)
 {
     if (x_vel == 0.0 || w_vel == 0.0)
@@ -686,7 +713,19 @@ float rotational_vel_to_steering_angle(float x_vel, float w_vel, float wheelbase
         return 0.0;
     }
     float radius = x_vel / w_vel;
-    return atan2(radius, wheelbase);
+
+// FIX move to config (or calculate based on max steering angle and wheelbase)
+const float MIN_TURNING_RADIUS = 1.5;
+
+    if (fabs(radius) < MIN_TURNING_RADIUS)
+    {
+        radius = MIN_TURNING_RADIUS * (radius < 0? -1: 1);
+    }
+
+    // FIX - why is this factor needed?  Without it the steering angle is
+    // either maxed to the left/right, or center.
+    radius *= 1.75;
+    return atan(wheelbase/radius);
 }
 
 void moveBase()
@@ -770,15 +809,6 @@ void moveBase()
             0,
             steering_angle);
 
-        // Test - Does this help?
-        // Slow the inside wheel a bit to help reduce the turning radius.
-        float str_motor_adj = (STEERING_HALF_RANGE_DEG - (min(STEERING_HALF_RANGE_DEG, abs(steering_angle))))/STEERING_HALF_RANGE_DEG;
-        if (steering_angle < 0) {
-            req_rpm.motor2 *= str_motor_adj;
-        } else {
-            req_rpm.motor1 *= str_motor_adj;
-        }
-
         // Don't drive motor in the opposite direction until it stops
         if (directionChange(current_rpm1, req_rpm.motor1) || estop)
         {
@@ -810,6 +840,8 @@ void moveBase()
     {
         current_vel = kinematics.getVelocities(current_rpm1, current_rpm2, current_rpm3, current_rpm4);
     }
+
+    //Logger::log_message(Logger::LogLevel::Error, "Steering pos %f", steering.get_actual_pos_deg());
 
     unsigned long now = millis();
     float vel_dt = (now - prev_odom_update) / 1000.0;
@@ -848,6 +880,7 @@ void publishData()
 #if defined(PUBLISH_MOTOR_DIAGS)
     motor1_diags.publish(time_stamp, req_rpm.motor1, current_rpm1, motor1_controller.getCurrent(), motor1_pid);
     motor2_diags.publish(time_stamp, req_rpm.motor2, current_rpm2, motor2_controller.getCurrent(), motor2_pid);
+    steering_diags.publish(time_stamp, steering.get_position(), steering.get_actual_pos(), 0.0, motor_str_pid);
 #endif
 }
 
