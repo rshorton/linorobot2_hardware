@@ -105,13 +105,13 @@ void Logger::log(Logger::LogLevel level, const char *msg)
     }
 
     log_msg.name.data = (char*)"linorobot_jeep";
-    log_msg.name.size = strlen(log_msg.name.data);
-    log_msg.msg.data = msg;
-    log_msg.msg.size = strlen(msg);
+    log_msg.name.size = strlen(log_msg.name.data) + 1;
+    log_msg.msg.data = (char*)msg;
+    log_msg.msg.size = strlen(msg) + 1;
     log_msg.file.data = (char*)"";
-    log_msg.file.size = strlen(log_msg.file.data);
+    log_msg.file.size = strlen(log_msg.file.data) + 1;
     log_msg.function.data = (char*)"";
-    log_msg.function.size = strlen(log_msg.function.data);
+    log_msg.function.size = strlen(log_msg.function.data) + 1;
     log_msg.line = NULL;
     rcl_publish(&publisher_log_, &log_msg, NULL);
 }
