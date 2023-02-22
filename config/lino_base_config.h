@@ -205,13 +205,19 @@ ROBOT ORIENTATION
 // using this input.
 #define MOTOR_RELAY_PWR_IN  7
 
-// Misc Inputs
-#define FORW_REV_SW_IN      32  // Active hi (forw) down position
-#define ACCEL_SW_IN         5   // Active low (when pressed)
-#define ACCEL_LEVEL_IN      A17 // Accelerator level ~2.5 (none)-> ~0(max)
-#define IGN_SW_IN           10  // Active hi (switch pressed)
-#define STEER_LEFT_LIMIT_IN 3   // Active low left limit Hall sensor
-#define ESTOP_IN            7   // Active low (emergency stop button pressed or RF switch is off)
+// Misc I/O
+#define FORW_REV_SW_IN        32  // Active hi (forw) down position
+#define ACCEL_SW_IN           5   // Active low (when pressed)
+#define ACCEL_LEVEL_IN        A17 // Accelerator level ~2.5 (none)-> ~0(max)
+#define IGN_SW_IN             10  // Active hi (switch pressed)
+#define STEER_RIGHT_LIMIT_IN  33  // Active low right steering limit sw
+#define ESTOP_IN              7   // Active low (emergency stop button pressed or RF switch is off)
+
+                                  // Back distance sensors
+#define HCSR04_TRIG1_OUT      2   // HCSR04 #1 trigger output (left)
+#define HCSR04_TRIG2_OUT      0   // HCSR04 #2 trigger output (right)
+#define HCSR04_ECHO1_IN       3   // HCSR04 #1 echo input
+#define HCSR04_ECHO2_IN       1   // HCSR04 #2 echo input (back sensor)        
 
 // I2C addresses
 #define IIC_ADDR_INA226_CTRL_BAT    0x40  // INA226 connected to control circuitry battery

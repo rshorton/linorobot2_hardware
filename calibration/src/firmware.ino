@@ -18,7 +18,7 @@
 #include "config.h"
 #include "motor.h"
 #define ENCODER_USE_INTERRUPTS
-#define ENCODER_OPTIMIZE_INTERRUPTS
+//#define ENCODER_OPTIMIZE_INTERRUPTS
 #include "encoder_none.h"
 #include "encoder.h"
 #include "kinematics.h"
@@ -27,6 +27,14 @@
 #include "steering.h"
 #include "accel_pedal.h"
 #include "INA226.h"
+#include "hc_sr04.h"
+
+#undef PANNING_DIST_SENSOR
+
+#if defined(PANNING_DIST_SENSOR)
+#include "serial_bus_servo.h"
+#endif
+
 
 #define SAMPLE_TIME 8 // s
 #define ONE_SEC_IN_US 1000000
@@ -59,13 +67,22 @@ const int STR_PWM_MIN = -1000;
 const int STR_PWM_MAX = 1000;
 PID motor_str_pid(STR_PWM_MIN, STR_PWM_MAX, STR_PID_P, STR_PID_I, STR_PID_D);
 
-Steering steering(STEER_LEFT_LIMIT_IN, STEERING_RIGHT_SENSOR_POS, STEERING_FULL_RANGE_STEPS, STEERING_FULL_RANGE_DEG, WHEEL_SCALING_FACTOR,
+Steering steering(STEER_RIGHT_LIMIT_IN, STEERING_RIGHT_SENSOR_POS, STEERING_FULL_RANGE_STEPS, STEERING_FULL_RANGE_DEG, WHEEL_SCALING_FACTOR,
                   motor_str_controller, str_motor_enc, str_wheel_enc, motor_str_pid);
 
 AccelPedal accel_pedal(ACCEL_SW_IN, 0, ACCEL_LEVEL_IN, MIN_ACCEL_IN, MAX_ACCEL_IN, ONE_SEC_IN_MS/20, 0.5);
 
 INA226 pwr_mon_ctrl_bat;
 INA226 pwr_mon_drive_bat;
+
+HCSR04 dist_sensor0(0, HCSR04_TRIG1_OUT, HCSR04_ECHO1_IN, 3);
+HCSR04 dist_sensor1(1, HCSR04_TRIG2_OUT, HCSR04_ECHO2_IN, 3);
+HCSR04 *dist_sensors[] = {&dist_sensor0, &dist_sensor1};
+const int NUM_DIST_SENSORS = sizeof(dist_sensors)/sizeof(HCSR04*);
+
+#if defined(PANNING_DIST_SENSOR)
+SerialServo servo0(Serial8);
+#endif
 
 Kinematics kinematics(
     Kinematics::ACKERMANN,
@@ -97,13 +114,14 @@ void setup()
     Serial.println("'s'    run steering control test.");
     Serial.println("'e'    run external steering control test.");
     Serial.println("'a'    run accelerator pedal test.");
+    Serial.println("'p'    run distance sensor test.");
     Serial.println("enter  print input status.");
     Serial.println("");
 
     pinMode(MOTOR_RELAY_PWR_OUT, OUTPUT);
     digitalWrite(MOTOR_RELAY_PWR_OUT, HIGH);
     pinMode(MOTOR_RELAY_PWR_IN, INPUT);
-    pinMode(STEER_LEFT_LIMIT_IN, INPUT_PULLUP);
+    pinMode(STEER_RIGHT_LIMIT_IN, INPUT_PULLUP);
     pinMode(ACCEL_SW_IN, INPUT_PULLUP);
     pinMode(FORW_REV_SW_IN, INPUT_PULLUP);
     pinMode(ESTOP_IN, INPUT_PULLUP);
@@ -143,6 +161,11 @@ void loop()
             Serial.println("\r\n");
             testAccelerator();
         }
+        else if (character == 'p')
+        {
+            Serial.println("\r\n");
+            testDistanceSensor();
+        }
         else if (character == '\r')
         {
             // Read various inputs
@@ -167,7 +190,7 @@ void loop()
             Serial.print(", steering enc: ");
             Serial.print(str_motor_enc.read());
             Serial.print(", steering limit: ");
-            Serial.print(digitalRead(STEER_LEFT_LIMIT_IN));
+            Serial.print(digitalRead(STEER_RIGHT_LIMIT_IN));
         }
     }
 }
@@ -375,6 +398,114 @@ void testAccelerator()
             Serial.print(level);
             Serial.print(", req_rpm: ");
             Serial.println(req_rpm);
+        }
+    }
+}
+
+#if defined(PANNING_DIST_SENSOR)
+const int scan_pos_start = 100;
+const int scan_pos_end = 500;
+const int scan_pos_step = 100;
+const int servo_id = 1;
+
+void testDistanceSensor()
+{
+    servo0.move(servo_id, scan_pos_start, 3000);
+    delay(500);
+
+    int16_t position = scan_pos_start;
+    int dir = -1;
+
+    while (true) {
+        if (dist_sensor0.start() != HCSR04::State::kRanging) {
+            Serial.println("Failed to start dist ranging");
+        }
+        Serial.println("Started dist ranging...");
+
+        bool wait = true;
+        while (wait) {
+            delay(20);
+            float dist;
+            auto state = dist_sensor0.get_distance_m(dist);
+            switch (state) {
+                case HCSR04::State::kRanging:
+                    Serial.println("Ranging...");
+                    break;
+                case HCSR04::State::kEdgeHi:
+                    Serial.println("Hi...");
+                    break;
+                case HCSR04::State::kError:
+                    Serial.println("Error...");
+                    return;
+                case HCSR04::State::kTimeout:
+                    Serial.println("Timeout...");
+                    wait = false;
+                    break;
+                case HCSR04::State::kFinished:
+                    Serial.print("Range: ");
+                    Serial.println(dist);
+                    wait = false;
+                    break;
+                default:
+                    break;
+            }
+        }
+        delay(500);
+
+        if (position >= scan_pos_end ||
+            position <= scan_pos_start) {
+            dir *= -1;
+        }
+        position += scan_pos_step*dir;
+        Serial.println(position);
+        servo0.move(servo_id, position, 500);
+        delay(1000);
+    }
+}
+#endif
+
+void testDistanceSensor()
+{
+    while (true) {
+        for (int i = 0; i < NUM_DIST_SENSORS; i++) {
+            HCSR04 *sensor = dist_sensors[i];
+        
+            if (sensor->start() != HCSR04::State::kRanging) {
+                Serial.println("Failed to start dist ranging");
+            }
+
+            Serial.print("Started dist ranging, sensor: ");
+            Serial.println(i);
+
+            bool wait = true;
+            while (wait) {
+                delay(20);
+                float dist;
+                auto state = sensor->get_distance_m(dist);
+                switch (state) {
+                    case HCSR04::State::kRanging:
+                        Serial.println("Ranging...");
+                        break;
+                    case HCSR04::State::kEdgeHi:
+                        Serial.println("Hi...");
+                        break;
+                    case HCSR04::State::kError:
+                        Serial.println("Error...");
+                        return;
+                    case HCSR04::State::kTimeout:
+                        Serial.println("Timeout...");
+                        wait = false;
+                        break;
+                    case HCSR04::State::kFinished:
+                        Serial.print("Range: ");
+                        Serial.println(dist);
+                        wait = false;
+                        break;
+                    default:
+                        break;
+                }
+            }
+            delay(500);
         }
     }
 }

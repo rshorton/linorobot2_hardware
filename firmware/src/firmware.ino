@@ -36,7 +36,7 @@
 #include "odometry.h"
 #include "imu.h"
 #define ENCODER_USE_INTERRUPTS
-#define ENCODER_OPTIMIZE_INTERRUPTS
+//#define ENCODER_OPTIMIZE_INTERRUPTS
 #include "encoder_none.h"
 #include "encoder.h"
 #include "motor_diagnostics.h"
@@ -45,6 +45,9 @@
 #include "steering.h"
 #include "accel_pedal.h"
 #include "INA226.h"
+#include "hc_sr04.h"
+#include "serial_bus_servo.h"
+#include "ros_range_sensor.h"
 
 #define TUNE_PID_LOOP // Allow tweaking of PID parameters via topic write
 #define STEERING_PID_TWEAKS
@@ -57,6 +60,8 @@ const int ONE_SEC_IN_MS = 1000;
 const float MIN_MOVING_RPM_THRESH = 1.0;
 
 const int BATTERY_DIAG_PUBLISH_PERIOD_MS = 10000;
+
+const int DIST_SENSOR_UPDATE_PERIOD_MS = 100;
 
 const float SPEED_SCALE_TURTLE = 0.25;
 const float SPEED_SCALE_SLOW = 0.35;
@@ -146,6 +151,7 @@ rcl_allocator_t allocator;
 rcl_node_t node;
 rcl_timer_t control_timer;
 rcl_timer_t battery_timer;
+rcl_timer_t dist_sensor_timer;
 
 unsigned long long time_offset = 0;
 unsigned long prev_cmd_time = 0;
@@ -156,7 +162,6 @@ bool micro_ros_init_successful = false;
 // true to enable child driver using steering wheel and accel pedal
 bool driver_control = false; 
 float speed_scale = SPEED_SCALE_SLOW;
-
 
 bool ackermann_teleop = true;
 float speed_x_in = 0.0;
@@ -191,13 +196,21 @@ const int STR_PWM_MIN = -1000;
 const int STR_PWM_MAX = 1000;
 PID motor_str_pid(STR_PWM_MIN, STR_PWM_MAX, STR_PID_P, STR_PID_I, STR_PID_D);
 
-Steering steering(STEER_LEFT_LIMIT_IN, STEERING_RIGHT_SENSOR_POS, STEERING_FULL_RANGE_STEPS, STEERING_FULL_RANGE_DEG, WHEEL_SCALING_FACTOR,
+Steering steering(STEER_RIGHT_LIMIT_IN, STEERING_RIGHT_SENSOR_POS, STEERING_FULL_RANGE_STEPS, STEERING_FULL_RANGE_DEG, WHEEL_SCALING_FACTOR,
                   motor_str_controller, str_motor_enc, str_wheel_enc, motor_str_pid);
 
 AccelPedal accel_pedal(ACCEL_SW_IN, 0, ACCEL_LEVEL_IN, MIN_ACCEL_IN, MAX_ACCEL_IN, ONE_SEC_IN_MS / 20, 0.5);
 
 INA226 pwr_mon_ctrl_bat;
 INA226 pwr_mon_drive_bat;
+
+HCSR04 dist_sensor0(0, HCSR04_TRIG1_OUT, HCSR04_ECHO1_IN, 3);
+HCSR04 dist_sensor1(1, HCSR04_TRIG2_OUT, HCSR04_ECHO2_IN, 3);
+
+RosRangeSensor range_sensor0(dist_sensor0, "hcsr04_back_left", "range/back_left");
+RosRangeSensor range_sensor1(dist_sensor1, "hcsr04_back_right", "range/back_right");
+
+bool range0_active = false;
 
 BatteryDiags control_battery_diags("control", pwr_mon_ctrl_bat);
 BatteryDiags drive_battery_diags("drive", pwr_mon_drive_bat);
@@ -241,7 +254,7 @@ void setup()
     pinMode(MOTOR_RELAY_PWR_OUT, OUTPUT);
     digitalWrite(MOTOR_RELAY_PWR_OUT, HIGH);
     pinMode(MOTOR_RELAY_PWR_IN, INPUT);
-    pinMode(STEER_LEFT_LIMIT_IN, INPUT_PULLUP);
+    pinMode(STEER_RIGHT_LIMIT_IN, INPUT_PULLUP);
     pinMode(ACCEL_SW_IN, INPUT_PULLUP);
     pinMode(FORW_REV_SW_IN, INPUT_PULLUP);
     pinMode(ESTOP_IN, INPUT_PULLUP);
@@ -380,6 +393,23 @@ void driverControlCallback(const void *msgin)
 }
 #endif
 
+void distSensorCallback(rcl_timer_t *timer, int64_t last_call_time)
+{
+    RCLC_UNUSED(last_call_time);
+    if (timer != NULL)
+    {
+        bool active = false;
+        if (range0_active) {
+            active = range_sensor0.update();
+        } else {
+            active = range_sensor1.update();
+        }            
+        if (!active) {
+            range0_active = !range0_active;
+        }
+    }
+}
+
 void joyCallback(const void *msgin)
 {
     RCLC_UNUSED(msgin);
@@ -488,6 +518,8 @@ void createEntities()
 
     control_battery_diags.create(node);
     drive_battery_diags.create(node);
+    range_sensor0.create(node);
+    range_sensor1.create(node);
     Logger::create_logger(node);   
 
 #if defined(PUBLISH_MOTOR_DIAGS)
@@ -566,9 +598,17 @@ void createEntities()
         RCL_MS_TO_NS(battery_status_timeout),
         batteryCallback));
 
+    // create timer for updating distance measurements
+    const unsigned int dist_sensor_timeout = DIST_SENSOR_UPDATE_PERIOD_MS;
+    RCCHECK(rclc_timer_init_default(
+        &dist_sensor_timer,
+        &support,
+        RCL_MS_TO_NS(dist_sensor_timeout),
+        distSensorCallback));
+
     executor = rclc_executor_get_zero_initialized_executor();
-    // 9 handles = 7 subscriptions + 2 timers  (including ifdef'ed subs)
-    RCCHECK(rclc_executor_init(&executor, &support.context, 9, &allocator));
+    // 9 handles = 7 subscriptions + 3 timers  (including ifdef'ed subs)
+    RCCHECK(rclc_executor_init(&executor, &support.context, 10, &allocator));
 
 #if defined(DRIVER_CONTROL)
     RCCHECK(rclc_executor_add_subscription(
@@ -622,6 +662,7 @@ void createEntities()
 #endif
     RCCHECK(rclc_executor_add_timer(&executor, &control_timer));
     RCCHECK(rclc_executor_add_timer(&executor, &battery_timer));
+    RCCHECK(rclc_executor_add_timer(&executor, &dist_sensor_timer));
 
     // synchronize time with the agent
     syncTime();
@@ -635,6 +676,8 @@ void destroyEntities()
 
     control_battery_diags.destroy(node);
     drive_battery_diags.destroy(node);
+    range_sensor0.destroy(node);
+    range_sensor1.destroy(node);
     Logger::destroy_logger(node);   
 
 #if defined(PUBLISH_MOTOR_DIAGS)
@@ -663,6 +706,7 @@ void destroyEntities()
 
     rcl_timer_fini(&control_timer);
     rcl_timer_fini(&battery_timer);
+    rcl_timer_fini(&dist_sensor_timer);
 
     rclc_executor_fini(&executor);
     rclc_support_fini(&support);
