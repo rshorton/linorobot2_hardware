@@ -26,6 +26,7 @@ bool Logger::create_logger(rcl_node_t &node)
     }
     delete logger;
     logger = nullptr;
+    return false;
 }
 
 bool Logger::destroy_logger(rcl_node_t &node)
@@ -36,6 +37,7 @@ bool Logger::destroy_logger(rcl_node_t &node)
     logger->destroy(node);
     delete logger;
     logger = nullptr;
+    return true;
 }
 
 void Logger::log_message(LogLevel level, const char * fmt, ...)
@@ -112,6 +114,6 @@ void Logger::log(Logger::LogLevel level, const char *msg)
     log_msg.file.size = strlen(log_msg.file.data) + 1;
     log_msg.function.data = (char*)"";
     log_msg.function.size = strlen(log_msg.function.data) + 1;
-    log_msg.line = NULL;
+    log_msg.line = 0;
     rcl_publish(&publisher_log_, &log_msg, NULL);
 }

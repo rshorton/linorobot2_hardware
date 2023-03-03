@@ -33,7 +33,6 @@ namespace
     const int NUM_SERVO_JOINTS = 2;
 
     const char* DIST_SENSOR_FRAME_FRONT = "front_hcsr04";
-    const char* DIST_SENSOR_FRAME_BACK = "back_hcsr04";
 }
 
 // fix - move definition to common file

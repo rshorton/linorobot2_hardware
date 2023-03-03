@@ -53,9 +53,9 @@ bool INA226::calibrate(float rShuntValue, float iMaxCurrentExcepted)
     uint16_t calibrationValue;
     rShunt = rShuntValue;
 
-    float iMaxPossible, minimumLSB;
+    float minimumLSB = 0.0;
 
-    iMaxPossible = vShuntMax / rShunt;
+    //float iMaxPossible = vShuntMax / rShunt;
 
     minimumLSB = iMaxCurrentExcepted / 32767;
 
