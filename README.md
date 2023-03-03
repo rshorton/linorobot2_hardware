@@ -51,8 +51,8 @@ https://github.com/rshorton/elsabot_jeep
 
 YouTube Videos
 
-https://www.youtube.com/shorts/D34mFTZinrc
-https://www.youtube.com/watch?v=4h3tpuhNfsM
+* https://www.youtube.com/shorts/D34mFTZinrc
+* https://www.youtube.com/watch?v=4h3tpuhNfsM
 
 More pictures
 
