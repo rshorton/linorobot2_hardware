@@ -49,6 +49,11 @@ Currently using Ubuntu 22.04 and ROS Humble.
 See this WIP project for the ROS2 bring-up scripts:
 https://github.com/rshorton/elsabot_jeep
 
+YouTube Videos
+
+https://www.youtube.com/shorts/D34mFTZinrc
+https://www.youtube.com/watch?v=4h3tpuhNfsM
+
 More pictures
 
 ![Elsabot Jeep](docs/jeep2.jpg)
