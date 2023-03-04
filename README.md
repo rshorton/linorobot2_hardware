@@ -44,10 +44,13 @@ Phase 2 (WIP)
   * Same as phase 1
   * Interactive functionality using Camera AI and voice control (as for previous projects)
 
-Currently using Ubuntu 22.04 and ROS Humble.
+Currently using micro-ROS for ROS Humble.
 
-See this WIP project for the ROS2 bring-up scripts:
+See this project for the ROS2 bring-up scripts and ROS packages used:
 https://github.com/rshorton/elsabot_jeep
+
+Other:
+* Be sure that your firmware build uses the provided micro-ROS meta configuration file (micro_ros.meta) otherwise startup will fail due to insufficient micro-ROS related resources.
 
 YouTube Videos
 
