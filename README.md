@@ -49,8 +49,14 @@ Currently using micro-ROS for ROS Humble.
 See this project for the ROS2 bring-up scripts and ROS packages used:
 https://github.com/rshorton/elsabot_jeep
 
-Other:
+### Other:
 * Be sure that your firmware build uses the provided micro-ROS meta configuration file (micro_ros.meta) otherwise startup will fail due to insufficient micro-ROS related resources.
+
+### Special Teleop Control
+
+  * Press and hold the game controller LT button (front left bottom) to use teleop control via controller joysticks.  This will also overide navigation control.
+  * Press and hold the game controller LB button (front left top) to enable driver control using accel pedal and steering wheel.
+  * Press the X (slow), A (normal), B (ludicrous) buttons to set the maximum speed for manual control. 
 
 YouTube Videos
 
