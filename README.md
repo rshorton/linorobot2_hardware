@@ -71,5 +71,41 @@ More pictures
 ![Elsabot Jeep](docs/jeep5.jpg)
 ![Elsabot Jeep](docs/jeep6.jpg)
 
+---
+## Modification to Power Wheel Motors
 
+Magnets were mounted on the second transmission gear and a Hall Sensor was mounted on the outside of the motor.
 
+---
+### Unmodified motor transmission
+
+![Motor mod](docs/unmodified_trans.jpg)
+
+---
+### Removed ribbing under gear
+
+This provides space for the magnets and mounting bracket.
+
+![Motor mod](docs/removed_bottom_ribbing.jpg)
+
+---
+### 3D Printed mounting bracket.
+
+![Motor mod](docs/magnet_holder_bracket.jpg)
+
+---
+### Gear with bracket and magnets
+
+Neodymium magnets: 0.375" OD x 0.06" thick, 2 magnets per position
+
+![Motor mod](docs/bracket_with_magnets_attached.jpg)
+
+---
+### 3D Printed PCB board mount
+
+![Motor mod](docs/hall_sensor_pcb_mount.jpg)
+
+---
+### Mounted Hall sensor board
+
+![Motor mod](docs/hall_sensor_mounted.jpg)
