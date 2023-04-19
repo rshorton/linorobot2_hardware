@@ -1,7 +1,7 @@
 #include "Arduino.h"
 #include "utility/direct_pin_read.h"
-
 #include "hc_sr04.h"
+#include <limits>
 
 namespace
 {
@@ -18,6 +18,7 @@ HCSR04::HCSR04(uint8_t instance, uint8_t pin_trig_out, uint8_t pin_echo_in, uint
     max_dist_m_(max_dist_m),
     state_(State::kInit),
     start_time_(0),
+    timeout_duration_(0),
     echo_hi_time_(0),
     echo_lo_time_(0)
 {
@@ -45,8 +46,9 @@ HCSR04::State HCSR04::start()
                         instance_ == 0 ? HCSR04::echo_int_instance0 : HCSR04::echo_int_instance1, CHANGE);
     }
 
-    state_ = State::kRanging;
     start_time_ = micros();
+    timeout_duration_ = (float)US_PER_METER * max_dist_m_;
+    state_ = State::kRanging;
 
     // Start a measurement
     digitalWrite(pin_trig_out_, HIGH);
@@ -56,7 +58,7 @@ HCSR04::State HCSR04::start()
     return State::kRanging;
 }
 
-HCSR04::State HCSR04::get_distance_m(float &distance)
+bool HCSR04::get_distance_m(float &distance)
 {
     distance = 0.0;
     unsigned long now = micros();
@@ -64,20 +66,50 @@ HCSR04::State HCSR04::get_distance_m(float &distance)
     switch (state_)
     {
     case State::kRanging:
-        if ((now - start_time_) > ((float)US_PER_METER * max_dist_m_))
+    {
+        if ((now - start_time_) > timeout_duration_)
         {
+            distance = std::numeric_limits<float>::infinity();
             state_ = State::kTimeout;
+            return true;
         }
         break;
-
-    case State::kFinished:
+    }
+    case State::kRanged:
+    {
         distance = (float)(echo_lo_time_ - echo_hi_time_) / US_PER_METER;
+        
+        auto waited = now - start_time_;
+        if (waited < timeout_duration_)
+        {
+            timeout_duration_ = timeout_duration_ - waited;
+            start_time_ = now;
+            state_ = State::kSettle;            
+        }
+        else
+        {
+            state_ = State::kFinished;
+        }
+        return true;
+    }
+    case State::kSettle:
+    {
+        if ((now - start_time_) > timeout_duration_)
+        {
+            state_ = State::kFinished;
+        }
         break;
-
+    }
     default:
         break;
     }
-    return state_;
+    return false;
+}
+
+bool HCSR04::finished()
+{
+    return state_ == State::kFinished ||
+           state_ == State::kTimeout;
 }
 
 void HCSR04::pin_change()
@@ -91,7 +123,7 @@ void HCSR04::pin_change()
     else if (state_ == State::kEdgeHi && level == 0)
     {
         echo_lo_time_ = micros();
-        state_ = State::kFinished;
+        state_ = State::kRanged;
     }
 }
 

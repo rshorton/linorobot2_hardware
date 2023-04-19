@@ -204,8 +204,8 @@ AccelPedal accel_pedal(ACCEL_SW_IN, 0, ACCEL_LEVEL_IN, MIN_ACCEL_IN, MAX_ACCEL_I
 INA226 pwr_mon_ctrl_bat;
 INA226 pwr_mon_drive_bat;
 
-HCSR04 dist_sensor0(0, HCSR04_TRIG1_OUT, HCSR04_ECHO1_IN, 3);
-HCSR04 dist_sensor1(1, HCSR04_TRIG2_OUT, HCSR04_ECHO2_IN, 3);
+HCSR04 dist_sensor0(0, HCSR04_TRIG1_OUT, HCSR04_ECHO1_IN, 6);
+HCSR04 dist_sensor1(1, HCSR04_TRIG2_OUT, HCSR04_ECHO2_IN, 6);
 
 RosRangeSensor range_sensor0(dist_sensor0, "hcsr04_back_left", "range/back_left");
 RosRangeSensor range_sensor1(dist_sensor1, "hcsr04_back_right", "range/back_right");
@@ -530,17 +530,17 @@ void createEntities()
 #endif
 
     RCCHECK_WITH_BLINK_CODE(3, rclc_subscription_init_default(
-                                   &speed_scale_subscriber,
-                                   &node,
-                                   ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
-                                   "speed_scale"));
+        &speed_scale_subscriber,
+        &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
+        "speed_scale"));
 
 #if defined(TUNE_PID_LOOP)
     RCCHECK_WITH_BLINK_CODE(3, rclc_subscription_init_default(
-                                   &pid_kp_subscriber,
-                                   &node,
-                                   ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
-                                   "pid_kp"));
+        &pid_kp_subscriber,
+        &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
+        "pid_kp"));
     RCCHECK(rclc_subscription_init_default(
         &pid_kd_subscriber,
         &node,
@@ -627,11 +627,11 @@ void createEntities()
 #endif
 
     RCCHECK_WITH_BLINK_CODE(4, rclc_executor_add_subscription(
-                                   &executor,
-                                   &speed_scale_subscriber,
-                                   &speed_scale_msg,
-                                   &speedScaleCalback,
-                                   ON_NEW_DATA));
+        &executor,
+        &speed_scale_subscriber,
+        &speed_scale_msg,
+        &speedScaleCalback,
+        ON_NEW_DATA));
 
     RCCHECK(rclc_executor_add_subscription(
         &executor,
@@ -642,11 +642,11 @@ void createEntities()
 
 #if defined(TUNE_PID_LOOP)
     RCCHECK_WITH_BLINK_CODE(4, rclc_executor_add_subscription(
-                                   &executor,
-                                   &pid_kp_subscriber,
-                                   &pid_kp_msg,
-                                   &pidKpCallback,
-                                   ON_NEW_DATA));
+        &executor,
+        &pid_kp_subscriber,
+        &pid_kp_msg,
+        &pidKpCallback,
+        ON_NEW_DATA));
     RCCHECK(rclc_executor_add_subscription(
         &executor,
         &pid_kd_subscriber,

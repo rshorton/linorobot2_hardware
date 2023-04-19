@@ -40,7 +40,7 @@ void RosRangeSensor::create(rcl_node_t &node)
         range_msg_.radiation_type = sensor_msgs__msg__Range__ULTRASOUND;
         range_msg_.field_of_view = sensor_.get_field_of_view();
         range_msg_.min_range = 0.02;
-        range_msg_.max_range = 2.5;
+        range_msg_.max_range = 0.7; 
 
         inited_ = true;
     }
@@ -80,14 +80,11 @@ bool RosRangeSensor::update()
     if (measuring_)
     {
         float dist;
-        auto res = sensor_.get_distance_m(dist);
-        if (res == HCSR04::State::kFinished ||
-            res == HCSR04::State::kTimeout)
+        if (sensor_.get_distance_m(dist))
         {
-            dist = (res == HCSR04::State::kTimeout) ? std::numeric_limits<float>::infinity() : dist;
             publish_range(dist);
-            measuring_ = false;
         }
+        measuring_ = !sensor_.finished();
     }
     else
     {

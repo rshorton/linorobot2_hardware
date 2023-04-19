@@ -190,12 +190,13 @@ void RotatingDistSensor::update()
         case State::kRange:
         {
             float dist;
-            auto res = dist_sensor0_.get_distance_m(dist); 
-            if (res == HCSR04::State::kFinished ||
-                res == HCSR04::State::kTimeout)
+            if (dist_sensor0_.get_distance_m(dist))
             {
-                dist = (res == HCSR04::State::kTimeout)? std::numeric_limits<float>::infinity(): dist;
                 publish_range(dist_sensor_front_publisher_, DIST_SENSOR_FRAME_FRONT, dist, 0);
+            }
+
+            if (dist_sensor0_.finished())
+            {
                 delay = move_next();
             }
         }

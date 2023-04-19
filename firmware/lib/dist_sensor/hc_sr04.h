@@ -8,6 +8,7 @@ class HCSR04
 public:
     static const int MAX_INSTANCES = 2;
 
+private:
     enum class State
     {
         kInit,
@@ -15,6 +16,8 @@ public:
         kRanging,
         kEdgeHi,
         kError,
+        kRanged,
+        kSettle,
         kFinished,
         kTimeout
     };
@@ -23,7 +26,8 @@ public:
     HCSR04(uint8_t instance, uint8_t pin_trig_out, uint8_t pin_echo_in, uint16_t max_dist_m);
 
     State start();
-    State get_distance_m(float &distance);
+    bool get_distance_m(float &distance);
+    bool finished();
 
     float get_field_of_view() { return 15.0*M_PI/180.0; }
 
@@ -42,6 +46,7 @@ private:
 
     volatile State state_;
     unsigned long start_time_;
+    unsigned long timeout_duration_;
     volatile unsigned long echo_hi_time_;
     volatile unsigned long echo_lo_time_;
 };
