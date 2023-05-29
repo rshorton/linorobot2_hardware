@@ -101,6 +101,9 @@ void Logger::log(Logger::LogLevel level, const char *msg)
         case LogLevel::Warn:
             log_msg.level = rcl_interfaces__msg__Log__WARN;
             break;
+        case LogLevel::Debug:
+            log_msg.level = rcl_interfaces__msg__Log__DEBUG;
+            break;
         default:    
             log_msg.level = rcl_interfaces__msg__Log__INFO;
             break;

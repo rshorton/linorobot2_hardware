@@ -12,7 +12,7 @@
 class Logger
 {
 public:
-    enum class LogLevel { Error, Warn, Info };
+    enum class LogLevel { Error, Warn, Info, Debug };
     
 public:
     static bool create_logger(rcl_node_t &node);
