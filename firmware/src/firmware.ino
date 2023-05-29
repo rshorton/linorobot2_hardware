@@ -758,17 +758,14 @@ float rotational_vel_to_steering_angle(float x_vel, float w_vel, float wheelbase
     }
     float radius = x_vel / w_vel;
 
-// FIX move to config (or calculate based on max steering angle and wheelbase)
-const float MIN_TURNING_RADIUS = 1.5;
+    // FIX move to config (or calculate based on max steering angle and wheelbase)
+    const float MIN_TURNING_RADIUS = 1.5;
 
     if (fabs(radius) < MIN_TURNING_RADIUS)
     {
         radius = MIN_TURNING_RADIUS * (radius < 0? -1: 1);
     }
 
-    // FIX - why is this factor needed?  Without it the steering angle is
-    // either maxed to the left/right, or center.
-    radius *= 1.75;
     return atan(wheelbase/radius);
 }
 
@@ -834,7 +831,7 @@ void moveBase()
             // navigation planner)
 
             // brake if there's no command received, or when it's only the first command sent
-            if (((millis() - prev_cmd_time) > 200))
+            if (((millis() - prev_cmd_time) > 400))
             {
                 digitalWrite(LED_PIN, HIGH);
             }
@@ -844,6 +841,8 @@ void moveBase()
                 // Calculate steering angle from x velocity, twist and wheelbase
                 // http://wiki.ros.org/teb_local_planner/Tutorials/Planning%20for%20car-like%20robots
                 steering_angle = rotational_vel_to_steering_angle(twist_msg.linear.x, twist_msg.angular.z, FR_WHEELS_DISTANCE);
+                Logger::log_message(Logger::LogLevel::Debug, "Steering angle %f, xve: %f, zvel: %f",
+                    steering_angle*180.0/M_PI, twist_msg.linear.x, twist_msg.angular.z);
             }
         }
 
@@ -884,8 +883,6 @@ void moveBase()
     {
         current_vel = kinematics.getVelocities(current_rpm1, current_rpm2, current_rpm3, current_rpm4);
     }
-
-    //Logger::log_message(Logger::LogLevel::Error, "Steering pos %f", steering.get_actual_pos_deg());
 
     unsigned long now = millis();
     float vel_dt = (now - prev_odom_update) / 1000.0;
