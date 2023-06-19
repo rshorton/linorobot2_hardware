@@ -13,7 +13,7 @@ The Elsabot Jeep base:
 Phase 1
 * Used PowerWheels Jeep chassis
 * Existing rear 12V gearbox motors modified with magnets and a Hall sensor for measuring rotational speed
-* BTS7960 motor drivers
+* ~~BTS7960 motor drivers~~ Now using RoboClaw 2x30A DC Motor driver
 * Front steering modified to use PowerWheels steering motor.
 * Steering shaft cut with encoder mounted to sense steering wheel rotation, and encoder mounted underneath to measure steering rod movement.
 * GY85 IMU

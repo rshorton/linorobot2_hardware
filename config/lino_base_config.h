@@ -29,6 +29,8 @@
 //uncomment the motor driver you're using
 //#define USE_GENERIC_2_IN_MOTOR_DRIVER    // Motor drivers with 2 Direction Pins(INA, INB) and 1 PWM(ENABLE) pin ie. L298, L293, VNH5019
 //#define USE_GENERIC_1_IN_MOTOR_DRIVER    // Motor drivers with 1 Direction Pin(INA) and 1 PWM(ENABLE) pin.
+
+// Used for steering mode only
 #define USE_BTS7960_MOTOR_DRIVER           // BTS7970 Motor Driver
 // #define USE_ESC_MOTOR_DRIVER            // Motor ESC for brushless motors
 
@@ -38,9 +40,9 @@
 // #define USE_MPU9150_IMU
 // #define USE_MPU9250_IMU
 
-#define K_P 0.6                             // P constant
-#define K_I 0.3                             // I constant
-#define K_D 1.5                             // D constant
+#define K_P 0.08                            // P constant
+#define K_I 0.05                            // I constant
+#define K_D 0.0                             // D constant
 
 /*
 ROBOT ORIENTATION
@@ -69,14 +71,14 @@ ROBOT ORIENTATION
 #define PWM_BITS 10                         // PWM Resolution of the microcontroller
 #define PWM_FREQUENCY 20000                 // PWM Frequency
 
-#define STR_PID_P   0.5                    // Steering motor PID values 
-#define STR_PID_I   1.0
-#define STR_PID_D   5.0
+#define STR_PID_P   0.4                    // Steering motor PID values 
+#define STR_PID_I   0.3
+#define STR_PID_D   2.5
 
 #define STEERING_MAX_RANGE_STEPS  456       // Steering max range in steering encoder units
 #define STEERING_FULL_RANGE_STEPS 456       // Steering usable range in steering encoder units
 
-#define WHEEL_SCALING_FACTOR      10.0
+#define WHEEL_SCALING_FACTOR      8.0       // Ratio of steering wheel encoder tics to steering motor tics (for manual driving mode)
 
 #define STEERING_FULL_RANGE_DEG   53        // Steering range in degrees
 #define STEERING_HALF_RANGE_DEG   (STEERING_FULL_RANGE_DEG/2)
@@ -195,6 +197,14 @@ ROBOT ORIENTATION
   #define PWM_MAX 400
   #define PWM_MIN -PWM_MAX
 #endif
+
+#define ROBOCLAW_ADDRESS            128
+#define ROBOCLAW_BAUD_RATE          9600
+#define ROBOCLAW_SERIAL             Serial7
+#define ROBOCLAW_INVERT_SERIAL_IO   true      // Invert the serial I/O since the optoisolator interface circuit inverts the signals
+#define ROBOCLAW_SERIAL_TIMEOUT_US  10000
+#define ROBOCLAW_MAX_SPEED_LIMIT    80        // Actual max is +/- 127. Limit to a lower value
+#define ROBOCLAW_MIN_SPEED_LIMIT    (-ROBOCLAW_MAX_SPEED_LIMIT)
 
 // Motor power relay control related
 // Active high output is connected thru

@@ -12,11 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Revised for ElsaBot Jeep by S. Horton.
+
 #ifndef DEFAULT_MOTOR
 #define DEFAULT_MOTOR
 
 #include <Arduino.h>
 #include <Servo.h> 
+#include <assert.h>
+#include "RoboClaw.h"
 
 #include "motor_interface.h"
 
@@ -264,4 +268,161 @@ class ESC: public MotorInterface
         }
 };
 
+class RoboClawController
+{
+    private:
+        const int ROBOCLAW_MAX_LEVEL = 127;
+
+    private:
+        uint8_t address_;
+        uint16_t baud_rate_;
+        HardwareSerial &serial_;
+        bool invert_serial_;
+        uint32_t timeout_;
+        int num_channels_;
+        RoboClaw roboclaw_;
+
+    protected:
+
+    public:
+        RoboClawController(uint8_t address, uint16_t baud_rate, HardwareSerial &serial, bool invert_serial, uint32_t timeout, int num_channels): 
+            address_(address),
+            baud_rate_(baud_rate),
+            serial_(serial),
+            invert_serial_(invert_serial),
+            timeout_(timeout),
+            num_channels_(num_channels),
+            roboclaw_(&serial_, timeout_)
+        {
+            assert(num_channels_ > 0);
+            roboclaw_.begin(baud_rate);
+
+            // Configure serial I/O for inverted levels if needed (such as when using
+            // opto-isolators that result in an inversion).  Although Roboclaw::begin calls
+            // serial begin, call it again here with the serial options if needed.
+
+            if (invert_serial)
+            {
+                serial_.begin(baud_rate, SERIAL_8N1_RXINV_TXINV);
+            }            
+        }
+
+        ~RoboClawController()
+        {
+            stop_all();
+        }
+
+        void stop_all()
+        {
+            roboclaw_.clear();
+            for (int i = 0; i < num_channels_; i++)
+            {
+                if (i == 0)
+                {
+                    roboclaw_.ForwardM1(address_, 0);
+                }
+                else
+                {
+                    roboclaw_.ForwardM2(address_, 0);
+                }
+            }
+            delay(20);
+        }
+
+        bool set_level(int channel, int level)
+        {
+            roboclaw_.clear();
+            if (channel > num_channels_ - 1)
+            {
+                return false;
+            }
+
+            if (level > ROBOCLAW_MAX_LEVEL) {
+                level = ROBOCLAW_MAX_LEVEL;
+            } else if (level < -ROBOCLAW_MAX_LEVEL) {
+                level = -ROBOCLAW_MAX_LEVEL;
+            }
+
+            bool result = false;
+            if (channel == 0)
+            {
+                if (level < 0)
+                {
+                    result = roboclaw_.BackwardM1(address_, abs(level));
+                }
+                else
+                {
+                    result = roboclaw_.ForwardM1(address_, abs(level));
+                }                    
+            }
+            else
+            {
+                if (level < 0)
+                {
+                    result = roboclaw_.BackwardM2(address_, abs(level));
+                }
+                else
+                {
+                    result = roboclaw_.ForwardM2(address_, abs(level));
+                }                    
+            }
+            delay(20);
+            return result;
+        }
+};
+
+class RoboClawMotor: public MotorInterface
+{
+    private:
+        const int INVALID_SETTING = 9999;
+
+    private:
+        RoboClawController &controller_;
+        int channel_;
+        int *dir_status_out_;
+        int last_setting_;
+
+    private:
+
+    protected:
+        void forward(int level) override
+        {
+            if (level != last_setting_) {
+                last_setting_ = level;
+                controller_.set_level(channel_, level);
+                if (dir_status_out_)
+                {
+                    *dir_status_out_ = invert_? 0: 1;
+                }                
+            }                
+        }
+
+        void reverse(int level) override
+        {
+            if (level != last_setting_) {
+                last_setting_ = level;
+                controller_.set_level(channel_, level);
+                if (dir_status_out_)
+                {
+                    *dir_status_out_ = invert_? 1: 0;
+                }                
+            }                
+        }
+
+    public:
+        RoboClawMotor(RoboClawController &controller, int channel, bool invert, int *dir_status_out = NULL):
+            MotorInterface(invert),
+            controller_(controller),
+            channel_(channel),
+            dir_status_out_(dir_status_out),
+            last_setting_(INVALID_SETTING)
+        {
+            brake();
+        }
+
+        void brake() override
+        {
+            controller_.set_level(channel_, 0);
+        }
+};
 #endif

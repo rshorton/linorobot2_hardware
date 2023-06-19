@@ -50,7 +50,7 @@
 #include "ros_range_sensor.h"
 
 #define TUNE_PID_LOOP // Allow tweaking of PID parameters via topic write
-#define STEERING_PID_TWEAKS
+#undef STEERING_PID_TWEAKS
 #define DRIVER_CONTROL
 #define JOY_BUTTON_ENABLES_DRIVER_CONTROL
 
@@ -63,11 +63,9 @@ const int BATTERY_DIAG_PUBLISH_PERIOD_MS = 10000;
 
 const int DIST_SENSOR_UPDATE_PERIOD_MS = 100;
 
-const float SPEED_SCALE_TURTLE = 0.25;
-const float SPEED_SCALE_SLOW = 0.35;
-const float SPEED_SCALE_NORMAL = 0.75;
-const float SPEED_SCALE_LUDICROUS = 2.0;
-const float SPEED_SCALE_CRAZY_LUDICROUS = 2.5;
+const float SPEED_SCALE_TURTLE = 0.15;
+const float SPEED_SCALE_SLOW = 0.30;
+const float SPEED_SCALE_NORMAL = 0.65;
 
 // Game controller buttons
 const int JOY_BUTTON_LB = 4; // left side, closest to top
@@ -183,8 +181,9 @@ EncoderNone motor1_encoder(MOTOR1_ENCODER_A, MOTOR1_ENCODER_B, COUNTS_PER_REV1, 
 EncoderNone motor2_encoder(MOTOR2_ENCODER_A, MOTOR2_ENCODER_B, COUNTS_PER_REV2, MOTOR2_ENCODER_INV, &m2_dir_status);
 
 // Rear motors
-Motor motor1_controller(PWM_FREQUENCY, PWM_BITS, MOTOR1_INV, MOTOR1_PWM, MOTOR1_IN_A, MOTOR1_IN_B, &m1_dir_status);
-Motor motor2_controller(PWM_FREQUENCY, PWM_BITS, MOTOR2_INV, MOTOR2_PWM, MOTOR2_IN_A, MOTOR2_IN_B, &m2_dir_status);
+RoboClawController roboclaw(ROBOCLAW_ADDRESS, ROBOCLAW_BAUD_RATE, ROBOCLAW_SERIAL, ROBOCLAW_INVERT_SERIAL_IO, ROBOCLAW_SERIAL_TIMEOUT_US, 2);
+RoboClawMotor motor1_controller(roboclaw, 0, MOTOR1_INV, &m1_dir_status);
+RoboClawMotor motor2_controller(roboclaw, 1, MOTOR2_INV, &m2_dir_status);
 
 PID motor1_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
 PID motor2_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
@@ -364,7 +363,7 @@ void twistCallback(const void *msgin)
 void setSpeedScale(float scale)
 {
     if (scale >= SPEED_SCALE_TURTLE &&
-        scale <= SPEED_SCALE_CRAZY_LUDICROUS)
+        scale <= SPEED_SCALE_NORMAL)
     {
         speed_scale = scale;
     }
@@ -431,10 +430,6 @@ void joyCallback(const void *msgin)
     {
         setSpeedScale(SPEED_SCALE_NORMAL);
     }
-    else if (joy_msg.buttons.data[JOY_BUTTON_B])
-    {
-        setSpeedScale(SPEED_SCALE_LUDICROUS);
-    }
 
     ackermann_teleop = joy_msg.axes.data[JOY_AXIS_LEFT_TRIGGER_BUTTON] == -1;
     if (ackermann_teleop)
@@ -465,8 +460,6 @@ void pidKpCallback(const void *msgin)
 #else
     motor1_pid.updateKp(pid_kp_msg.data);
     motor2_pid.updateKp(pid_kp_msg.data);
-    motor3_pid.updateKp(pid_kp_msg.data);
-    motor4_pid.updateKp(pid_kp_msg.data);
 #endif
 }
 
@@ -477,8 +470,6 @@ void pidKdCallback(const void *msgin)
 #else
     motor1_pid.updateKd(pid_kd_msg.data);
     motor2_pid.updateKd(pid_kd_msg.data);
-    motor3_pid.updateKd(pid_kd_msg.data);
-    motor4_pid.updateKd(pid_kd_msg.data);
 #endif
 }
 
@@ -489,8 +480,6 @@ void pidKiCallback(const void *msgin)
 #else
     motor1_pid.updateKi(pid_ki_msg.data);
     motor2_pid.updateKi(pid_ki_msg.data);
-    motor3_pid.updateKi(pid_ki_msg.data);
-    motor4_pid.updateKi(pid_ki_msg.data);
 #endif
 }
 #endif
@@ -866,7 +855,8 @@ void moveBase()
         // the required rpm is capped at -/+ MAX_RPM to prevent the PID from having too much error
         // the PWM value sent to the motor driver is the calculated PID based on required RPM vs measured RPM
         motor1_controller.spin(motor1_pid.compute(req_rpm.motor1, current_rpm1));
-        motor2_controller.spin(motor2_pid.compute(req_rpm.motor2, current_rpm2));
+        // Use requested motor1 rpm for motor2 also        
+        motor2_controller.spin(motor2_pid.compute(req_rpm.motor1, current_rpm2));
 
         if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
         {

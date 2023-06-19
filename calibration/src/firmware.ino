@@ -54,11 +54,12 @@ EncoderNone motor1_encoder(MOTOR1_ENCODER_A, MOTOR1_ENCODER_B, COUNTS_PER_REV1, 
 EncoderNone motor2_encoder(MOTOR2_ENCODER_A, MOTOR2_ENCODER_B, COUNTS_PER_REV2, MOTOR2_ENCODER_INV, &m2_dir_status);
 
 // Rear motors
-Motor motor1_controller(PWM_FREQUENCY, PWM_BITS, MOTOR1_INV, MOTOR1_PWM, MOTOR1_IN_A, MOTOR1_IN_B, &m1_dir_status);
-Motor motor2_controller(PWM_FREQUENCY, PWM_BITS, MOTOR2_INV, MOTOR2_PWM, MOTOR2_IN_A, MOTOR2_IN_B, &m2_dir_status);
+RoboClawController roboclaw(ROBOCLAW_ADDRESS, ROBOCLAW_BAUD_RATE, ROBOCLAW_SERIAL, ROBOCLAW_INVERT_SERIAL_IO, ROBOCLAW_SERIAL_TIMEOUT_US, 2);
+RoboClawMotor motor1_controller(roboclaw, 0, MOTOR1_INV, &m1_dir_status);
+RoboClawMotor motor2_controller(roboclaw, 1, MOTOR2_INV, &m2_dir_status);
 
-PID motor1_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
-PID motor2_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
+PID motor1_pid(ROBOCLAW_MIN_SPEED_LIMIT, ROBOCLAW_MAX_SPEED_LIMIT, K_P, K_I, K_D);
+PID motor2_pid(ROBOCLAW_MIN_SPEED_LIMIT, ROBOCLAW_MAX_SPEED_LIMIT, K_P, K_I, K_D);
 
 // Steering motor
 Motor motor_str_controller(PWM_FREQUENCY, PWM_BITS, MOTOR_STR_INV, MOTOR_STR_PWM, MOTOR_STR_IN_A, MOTOR_STR_IN_B, &mstr_dir_status);
@@ -96,7 +97,7 @@ Kinematics kinematics(
 
 const int total_motors = 2;
 long long int counts_per_rev[total_motors];
-Motor *motors[] = {&motor1_controller, &motor2_controller};
+RoboClawMotor *motors[] = {&motor1_controller, &motor2_controller};
 EncoderNone *encoders[] = {&motor1_encoder, &motor2_encoder};
 String labels[] = {"REAR LEFT - M1: ", "REAR RIGHT - M2: "};
 
@@ -230,7 +231,7 @@ void sampleMotors(bool show_summary)
                 Serial.print(".");
             }
 
-            motors[i]->spin(300);
+            motors[i]->spin(30);
 
             Serial.print(encoders[0]->read());
             Serial.print(" ");
@@ -378,7 +379,7 @@ void testAccelerator()
             if (!dir) {
                 level *= -1;
             }
-            float req_rpm = level * MOTOR_MAX_RPM;
+            float req_rpm = level * MAX_MANUAL_RPM_FORWARD;
 
             float current_rpm1 = motor1_encoder.getRPM();
             float current_rpm2 = motor2_encoder.getRPM();
@@ -387,8 +388,10 @@ void testAccelerator()
             if (directionChange(current_rpm1, req_rpm)) {
                 req_rpm = 0.0;
             }
-            motor1_controller.spin(motor1_pid.compute(req_rpm, current_rpm1));
-            motor2_controller.spin(motor2_pid.compute(req_rpm, current_rpm2));        
+            int m1_setpoint = motor1_pid.compute(req_rpm, current_rpm1);
+            motor1_controller.spin(m1_setpoint);
+            int m2_setpoint = motor2_pid.compute(req_rpm, current_rpm2);
+            motor2_controller.spin(m2_setpoint);        
 
             last_update = millis();
 
@@ -397,7 +400,15 @@ void testAccelerator()
             Serial.print(", accel level: ");
             Serial.print(level);
             Serial.print(", req_rpm: ");
-            Serial.println(req_rpm);
+            Serial.print(req_rpm);
+            Serial.print(", m1_rpm: ");
+            Serial.print(current_rpm1);
+            Serial.print(", m2_rpm: ");
+            Serial.print(current_rpm2);
+            Serial.print(", m1_sp: ");
+            Serial.print(m1_setpoint);
+            Serial.print(", m2_sp: ");
+            Serial.println(m2_setpoint);
         }
     }
 }
@@ -466,46 +477,31 @@ void testDistanceSensor()
 
 void testDistanceSensor()
 {
+    int sensor_idx = 0;
+    bool measuring = false;
+    HCSR04 *sensor = nullptr;
+
     while (true) {
-        for (int i = 0; i < NUM_DIST_SENSORS; i++) {
-            HCSR04 *sensor = dist_sensors[i];
-        
-            if (sensor->start() != HCSR04::State::kRanging) {
-                Serial.println("Failed to start dist ranging");
-            }
+        if (!measuring) {
+            sensor = dist_sensors[sensor_idx];
+            sensor->start();
+            measuring = true;
 
             Serial.print("Started dist ranging, sensor: ");
-            Serial.println(i);
+            Serial.println(sensor_idx);
+            
+            sensor_idx++;
+            sensor_idx = sensor_idx % NUM_DIST_SENSORS;
 
-            bool wait = true;
-            while (wait) {
-                delay(20);
-                float dist;
-                auto state = sensor->get_distance_m(dist);
-                switch (state) {
-                    case HCSR04::State::kRanging:
-                        Serial.println("Ranging...");
-                        break;
-                    case HCSR04::State::kEdgeHi:
-                        Serial.println("Hi...");
-                        break;
-                    case HCSR04::State::kError:
-                        Serial.println("Error...");
-                        return;
-                    case HCSR04::State::kTimeout:
-                        Serial.println("Timeout...");
-                        wait = false;
-                        break;
-                    case HCSR04::State::kFinished:
-                        Serial.print("Range: ");
-                        Serial.println(dist);
-                        wait = false;
-                        break;
-                    default:
-                        break;
-                }
+        } else {            
+            float dist;
+            if (sensor->get_distance_m(dist))
+            {
+                Serial.print("Range: ");
+                Serial.println(dist);
             }
-            delay(500);
+            measuring = !sensor->finished();
         }
+        delay(50);
     }
 }
