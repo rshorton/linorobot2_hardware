@@ -10,6 +10,7 @@ public:
                long update_period_ms, float ave_alpha);
 
     float get_level() const { return level_; }
+    bool get_pressed() const { return pressed_; }
     void update();
 
 private:
@@ -21,6 +22,7 @@ private:
     long update_period_ms_;
     float ave_alpha_;
     float level_;
+    bool pressed_;
     unsigned long next_update_;
 };
 

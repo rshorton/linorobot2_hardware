@@ -26,6 +26,7 @@
 #include <geometry_msgs/msg/vector3.h>
 #include <std_msgs/msg/float32.h>
 #include <std_msgs/msg/bool.h>
+#include <std_msgs/msg/int8.h>
 #include <sensor_msgs/msg/joy.h>
 
 #include "config.h"
@@ -112,6 +113,8 @@ const int ERR_BLINK_IMU = 3;
         }                            \
     }
 
+enum class DriverControlMode { Disabled, Full, PedalEnablesMovement };
+
 rcl_publisher_t odom_publisher;
 rcl_publisher_t imu_publisher;
 rcl_subscription_t twist_subscriber;
@@ -120,7 +123,7 @@ rcl_subscription_t twist_subscriber;
 rcl_subscription_t driver_control_subscriber;
 rcl_subscription_t joy_subscriber;
 
-std_msgs__msg__Bool driver_control_msg;
+std_msgs__msg__Int8 driver_control_msg;
 sensor_msgs__msg__Joy joy_msg;
 int32_t button_data[9];
 float axes_data[8];
@@ -158,7 +161,7 @@ unsigned long prev_odom_update = 0;
 bool micro_ros_init_successful = false;
 
 // true to enable child driver using steering wheel and accel pedal
-bool driver_control = false; 
+DriverControlMode driver_control_mode = DriverControlMode::Disabled;
 float speed_scale = SPEED_SCALE_SLOW;
 
 bool ackermann_teleop = true;
@@ -370,24 +373,41 @@ void setSpeedScale(float scale)
 }
 
 #if defined(DRIVER_CONTROL)
-void setDriverControl(bool enable)
+void setDriverControlMode(DriverControlMode mode)
 {
-    if (enable)
+    if (driver_control_mode != mode)
     {
-        steering.enable_steering_wheel();
-    }
-    else
+        driver_control_mode = mode;
+        if (mode == DriverControlMode::Full)
+        {
+            steering.enable_steering_wheel();
+        }
+        else
+        {
+            steering.enable_external_control();
+        }
+    }        
+}
+
+DriverControlMode ConvertDriverControlMsgToEnum(uint8_t mode)
+{
+    switch (mode)
     {
-        steering.enable_external_control();
+        case 1: return DriverControlMode::Full;
+        case 2: return DriverControlMode::PedalEnablesMovement;
+        case 0:
+        default:
+            break;
     }
+    return DriverControlMode::Disabled;        
 }
 
 void driverControlCallback(const void *msgin)
 {
-    if (driver_control != driver_control_msg.data)
+    auto mode = ConvertDriverControlMsgToEnum(driver_control_msg.data);
+    if (driver_control_mode != mode)
     {
-        driver_control = driver_control_msg.data;
-        setDriverControl(driver_control);
+        setDriverControlMode(mode);
     }
 }
 #endif
@@ -415,11 +435,7 @@ void joyCallback(const void *msgin)
 
 #if defined(JOY_BUTTON_ENABLES_DRIVER_CONTROL)
     bool enable = (bool)joy_msg.buttons.data[JOY_BUTTON_LB];
-    if (enable != driver_control)
-    {
-        driver_control = enable;
-        setDriverControl(enable);
-    }
+    setDriverControlMode(enable? DriverControlMode::Full: DriverControlMode::Disabled);
 #endif
 
     if (joy_msg.buttons.data[JOY_BUTTON_X])
@@ -548,7 +564,7 @@ void createEntities()
         &driver_control_subscriber,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
-        "driver_control"));
+        "driver_control_mode"));
 
     joy_msg.buttons.data = button_data;
     joy_msg.buttons.size = 0;
@@ -767,7 +783,7 @@ void moveBase()
     bool estop = estopAsserted();
 
 #if defined(DRIVER_CONTROL)
-    if (driver_control)
+    if (driver_control_mode == DriverControlMode::Full)
     {
         accel_pedal.update();
         float level = accel_pedal.get_level();
@@ -817,7 +833,7 @@ void moveBase()
         else
         {
             // Handle twist msg input (driven by the twist telop or a
-            // navigation planner)
+            // navigation controller)
 
             // brake if there's no command received, or when it's only the first command sent
             if (((millis() - prev_cmd_time) > 400))
@@ -827,11 +843,22 @@ void moveBase()
             else
             {
                 speed_x = twist_msg.linear.x;
+
                 // Calculate steering angle from x velocity, twist and wheelbase
                 // http://wiki.ros.org/teb_local_planner/Tutorials/Planning%20for%20car-like%20robots
                 steering_angle = rotational_vel_to_steering_angle(twist_msg.linear.x, twist_msg.angular.z, FR_WHEELS_DISTANCE);
                 Logger::log_message(Logger::LogLevel::Debug, "Steering angle %f, xve: %f, zvel: %f",
                     steering_angle*180.0/M_PI, twist_msg.linear.x, twist_msg.angular.z);
+
+                // If driver controls movement (but not speed) with accel pedal,
+                // then force stop if pedal not pressed.
+                if (driver_control_mode == DriverControlMode::PedalEnablesMovement)
+                {
+                    if (!accel_pedal.get_pressed())
+                    {
+                        speed_x = 0.0;
+                    }
+                }
             }
         }
 
