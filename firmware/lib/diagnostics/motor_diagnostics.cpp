@@ -1,15 +1,20 @@
 #include <Arduino.h>
 
+#include "config.h"
+
 #include <micro_ros_platformio.h>
+
 #include <rclc/rclc.h>
 
 #include <std_msgs/msg/float32.h>
+#if defined(PUBLISH_MOTOR_DIAGS)
 #include <elsabot_custom_messages/msg/motor_diag.h>
+#endif
 
 #include <micro_ros_utilities/type_utilities.h>
 #include <micro_ros_utilities/string_utilities.h>
 
-#include "diagnostics.h"
+#include "motor_diagnostics.h"
 
 MotorDiags::MotorDiags():
     inited_(false)
@@ -19,6 +24,7 @@ MotorDiags::MotorDiags():
 
 void MotorDiags::create(rcl_node_t &node, int index)
 {
+#if defined(PUBLISH_MOTOR_DIAGS)
     if (inited_) {
         return;
     }
@@ -35,6 +41,7 @@ void MotorDiags::create(rcl_node_t &node, int index)
         String(topic_base + "/motor_diag").c_str()
     );
     inited_ = true;
+#endif    
 }
 
 void MotorDiags::destroy(rcl_node_t &node)
@@ -48,6 +55,7 @@ void MotorDiags::destroy(rcl_node_t &node)
 
 void MotorDiags::publish(struct timespec time_stamp, float rpm_req, float rpm_cur, float current, PID const &pid)
 {
+#if defined(PUBLISH_MOTOR_DIAGS)
     if (!inited_) {
         return;
     }
@@ -64,5 +72,6 @@ void MotorDiags::publish(struct timespec time_stamp, float rpm_req, float rpm_cu
     motor_diag_msg_.pid_output_raw = pid.getOutputRaw();
     motor_diag_msg_.pid_output = pid.getOutputConstrained();
     rcl_publish(&motor_diag_publisher_, &motor_diag_msg_, NULL);
+#endif    
 }
 

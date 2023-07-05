@@ -15,6 +15,10 @@
 #ifndef LINO_BASE_CONFIG_H
 #define LINO_BASE_CONFIG_H
 
+// Define to enable motor diag support for publishing
+// motor status for plotting
+#undef PUBLISH_MOTOR_DIAGS
+
 #define LED_PIN 13 //used for debugging status
 
 //uncomment the base you're building
