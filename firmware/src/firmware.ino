@@ -22,6 +22,7 @@
 
 #include <nav_msgs/msg/odometry.h>
 #include <sensor_msgs/msg/imu.h>
+#include <sensor_msgs/msg/magnetic_field.h>
 #include <geometry_msgs/msg/twist.h>
 #include <geometry_msgs/msg/vector3.h>
 #include <std_msgs/msg/float32.h>
@@ -53,6 +54,7 @@
 
 rcl_publisher_t odom_publisher;
 rcl_publisher_t imu_publisher;
+rcl_publisher_t imu_mag_field_publisher;
 rcl_subscription_t twist_subscriber;
 
 #if defined(TUNE_PID_LOOP)
@@ -67,6 +69,7 @@ std_msgs__msg__Float32 pid_ki_msg;
 
 nav_msgs__msg__Odometry odom_msg;
 sensor_msgs__msg__Imu imu_msg;
+sensor_msgs__msg__MagneticField mag_field_msg;
 geometry_msgs__msg__Twist twist_msg;
 
 rclc_executor_t executor;
@@ -74,6 +77,7 @@ rclc_support_t support;
 rcl_allocator_t allocator;
 rcl_node_t node;
 rcl_timer_t control_timer;
+rcl_timer_t sensor_timer;
 
 unsigned long long time_offset = 0;
 unsigned long prev_cmd_time = 0;
@@ -192,6 +196,15 @@ void controlCallback(rcl_timer_t * timer, int64_t last_call_time)
     }
 }
 
+void sensorCallback(rcl_timer_t * timer, int64_t last_call_time) 
+{
+    RCLC_UNUSED(last_call_time);
+    if (timer != NULL) 
+    {
+       publishSensorData();
+    }
+}
+
 void twistCallback(const void * msgin) 
 {
     digitalWrite(LED_PIN, !digitalRead(LED_PIN));
@@ -244,7 +257,15 @@ void createEntities()
         &imu_publisher, 
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
-        "imu/data"
+        "imu/data_raw"
+    ));
+
+    // create IMU Magnetic Field publisher
+    RCCHECK(rclc_publisher_init_default( 
+        &imu_mag_field_publisher, 
+        &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, MagneticField),
+        "imu/mag"
     ));
 
 #if defined(PUBLISH_MOTOR_DIAGS)
@@ -285,7 +306,7 @@ void createEntities()
         "cmd_vel"
     ));
 
-    // create timer for actuating the motors at 50 Hz (1000/20)
+    // create timer for actuating the motors at 50 Hz
     const unsigned int control_timeout = 20;
     RCCHECK(rclc_timer_init_default( 
         &control_timer, 
@@ -293,8 +314,18 @@ void createEntities()
         RCL_MS_TO_NS(control_timeout),
         controlCallback
     ));
+
+    // create timer for reading and publishing sensor data 10 Hz
+    const unsigned int sensor_timeout = 100;
+    RCCHECK(rclc_timer_init_default( 
+        &sensor_timer, 
+        &support,
+        RCL_MS_TO_NS(sensor_timeout),
+        sensorCallback
+    ));
+
     executor = rclc_executor_get_zero_initialized_executor();
-    RCCHECK(rclc_executor_init(&executor, &support.context, 2 + 3, & allocator));
+    RCCHECK(rclc_executor_init(&executor, &support.context, 2 + 3 + 1, & allocator));
     RCCHECK(rclc_executor_add_subscription(
         &executor, 
         &twist_subscriber, 
@@ -326,6 +357,8 @@ void createEntities()
     ));
 #endif
     RCCHECK(rclc_executor_add_timer(&executor, &control_timer));
+    RCCHECK(rclc_executor_add_timer(&executor, &sensor_timer));
+
     // synchronize time with the agent
     syncTime();
     digitalWrite(LED_PIN, HIGH);
@@ -345,6 +378,7 @@ void destroyEntities()
 
     rcl_publisher_fini(&odom_publisher, &node);
     rcl_publisher_fini(&imu_publisher, &node);
+    rcl_publisher_fini(&imu_mag_field_publisher, &node);
     rcl_subscription_fini(&twist_subscriber, &node);
 #if defined(TUNE_PID_LOOP)
     rcl_subscription_fini(&pid_kp_subscriber, &node);
@@ -353,6 +387,7 @@ void destroyEntities()
 #endif
     rcl_node_fini(&node);
     rcl_timer_fini(&control_timer);
+    rcl_timer_fini(&sensor_timer);
     rclc_executor_fini(&executor);
     rclc_support_fini(&support);
 
@@ -455,20 +490,32 @@ void moveBase()
     );
 }
 
+void publishSensorData()
+{
+    imu_msg = imu.getData();
+    mag_field_msg = imu.getMagneticField();
+
+    struct timespec time_stamp = getTime();
+
+    imu_msg.header.stamp.sec = time_stamp.tv_sec;
+    imu_msg.header.stamp.nanosec = time_stamp.tv_nsec;
+
+    mag_field_msg.header.stamp.sec = time_stamp.tv_sec;
+    mag_field_msg.header.stamp.nanosec = time_stamp.tv_nsec;
+
+    RCSOFTCHECK(rcl_publish(&imu_publisher, &imu_msg, NULL));
+    RCSOFTCHECK(rcl_publish(&imu_mag_field_publisher, &mag_field_msg, NULL));
+}
+
 void publishData()
 {
     odom_msg = odometry.getData();
-    imu_msg = imu.getData();
-
+    
     struct timespec time_stamp = getTime();
 
     odom_msg.header.stamp.sec = time_stamp.tv_sec;
     odom_msg.header.stamp.nanosec = time_stamp.tv_nsec;
 
-    imu_msg.header.stamp.sec = time_stamp.tv_sec;
-    imu_msg.header.stamp.nanosec = time_stamp.tv_nsec;
-
-    RCSOFTCHECK(rcl_publish(&imu_publisher, &imu_msg, NULL));
     RCSOFTCHECK(rcl_publish(&odom_publisher, &odom_msg, NULL));
 
 #if defined(PUBLISH_MOTOR_DIAGS)

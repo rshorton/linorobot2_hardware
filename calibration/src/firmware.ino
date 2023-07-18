@@ -23,6 +23,8 @@
 #include "encoder.h"
 #endif
 #include "kinematics.h"
+#include "HMC5883L.h"
+#include "ADXL345.h"
 
 #define SAMPLE_TIME 10 //s
 
@@ -96,6 +98,18 @@ void loop()
             cmd = "";
             Serial.println("\r\n");
             sampleMotors(1);
+        }
+        else if(character == '\r' and cmd.equals("m\r"))
+        {
+            cmd = "";
+            Serial.println("\r\n");
+            magnetometerTest();
+        }
+        else if(character == '\r' and cmd.equals("a\r"))
+        {
+            cmd = "";
+            Serial.println("\r\n");
+            accelerometerTest();
         }
         else if(character == '\r')
         {
@@ -211,4 +225,122 @@ void printSummary()
     Serial.print("Angular Velocity: +- ");
     Serial.print(max_angular.angular_z);
     Serial.println(" rad/s");
+}
+
+const int16_t HMC5883L_INVALID_RAW_GAUSS = -4096;
+const float HMC5883L_GAIN_1370_SCALE = 0.73;
+const float MILLI_GAUSS_PER_TELSA = 10000000.0;
+
+void magnetometerTest()
+{
+    HMC5883L mag;
+
+    Wire.begin();
+
+    while(!mag.testConnection())
+    {
+        Serial.println("Magnetometer not detected");
+        delay(1000);
+    }
+
+    mag.initialize();
+    mag.setMode(HMC5883L_MODE_CONTINUOUS);
+    mag.setDataRate(HMC5883L_RATE_15);
+    mag.setGain(HMC5883L_GAIN_1370);
+
+
+    int16_t x, y, z = 0;
+    while(true)
+    {
+        mag.getHeading(&x, &y, &z);
+        if (x == HMC5883L_INVALID_RAW_GAUSS ||
+            y == HMC5883L_INVALID_RAW_GAUSS ||
+            z == HMC5883L_INVALID_RAW_GAUSS)
+        {
+            Serial.println("Invalid heading");
+        }
+        else
+        {
+            float xg = x*HMC5883L_GAIN_1370_SCALE;
+            float yg = y*HMC5883L_GAIN_1370_SCALE;
+            float zg = z*HMC5883L_GAIN_1370_SCALE;
+
+
+            float heading = atan2(y, x);
+            if (heading < 0)
+            {
+                heading += 2*M_PI;
+            }
+
+            Serial.print("Heading (deg): ");
+            Serial.print(heading*180.0/M_PI);
+            Serial.print(",    Mag(mGs): ");
+            Serial.print(xg, 6);
+            Serial.print(", ");
+            Serial.print(yg, 6);
+            Serial.print(", ");
+            Serial.print(zg, 6);
+            Serial.print(",    Mag(T): ");
+            Serial.print(xg/MILLI_GAUSS_PER_TELSA, 9);
+            Serial.print(", ");
+            Serial.print(yg/MILLI_GAUSS_PER_TELSA, 9);
+            Serial.print(", ");
+            Serial.println(zg/MILLI_GAUSS_PER_TELSA, 9);
+        }
+        delay(1000);
+    }
+}
+
+void accelerometerTest()
+{
+    const float G_TO_ACCEL_ = 9.81;
+    const double ACCEL_SCALE = 1 / 256.0;
+
+    ADXL345 accel;
+
+    Wire.begin();
+
+    while(!accel.testConnection())
+    {
+        Serial.println("Accelerometer not detected");
+        delay(1000);
+    }
+
+    accel.initialize();
+
+    uint8_t format = accel.getDataFormat();
+    Serial.print("Data format reg: ");
+    Serial.println(format, HEX);
+
+//  accel.setFullResolution(1);
+//  accel.setRange(3);
+    accel.setAutoSleepEnabled(false);
+
+    format = accel.getDataFormat();
+    Serial.print("Data format reg: ");
+    Serial.println(format, HEX);
+
+    int16_t x, y, z = 0;
+    while(true)
+    {
+        accel.getAcceleration(&x, &y, &z);
+
+        float ax = x * ACCEL_SCALE * G_TO_ACCEL_;
+        float ay = y * ACCEL_SCALE * G_TO_ACCEL_;
+        float az = z * ACCEL_SCALE * G_TO_ACCEL_;
+
+        Serial.print("Accel (g): ");
+        Serial.print(ax, 6);
+        Serial.print(", ");
+        Serial.print(ay, 6);
+        Serial.print(", ");
+        Serial.print(az, 6);
+        Serial.print("Raw: ");
+        Serial.print(x);
+        Serial.print(", ");
+        Serial.print(y);
+        Serial.print(", ");
+        Serial.println(z);
+        delay(1000);
+    }
 }

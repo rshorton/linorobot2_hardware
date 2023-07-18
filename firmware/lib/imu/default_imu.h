@@ -34,13 +34,19 @@ class GY85IMU: public IMUInterface
         const float accel_scale_ = 1 / 256.0;
         const float gyro_scale_ = 1 / 14.375;
 
+        const int16_t HMC5883L_INVALID_RAW_GAUSS = -4096;
+        const float HMC5883L_GAIN_1370_SCALE = 0.73;
+        const float MILLI_GAUSS_PER_TELSA = 10000000.0;
+
         // driver objects to be used
         ADXL345 accelerometer_;
         ITG3200 gyroscope_;
+        HMC5883L mag_;
 
         // returned vector for sensor reading
         geometry_msgs__msg__Vector3 accel_;
         geometry_msgs__msg__Vector3 gyro_;
+        geometry_msgs__msg__Vector3 mag_field_;
 
     public:
         GY85IMU()
@@ -65,11 +71,23 @@ class GY85IMU: public IMUInterface
             if(!ret)
                 return false;
 
+            mag_.testConnection();
+            if(!ret)
+                return false;
+
+            mag_.initialize();
+            mag_.setMode(HMC5883L_MODE_CONTINUOUS);
+            mag_.setDataRate(HMC5883L_RATE_15);
+            mag_.setGain(HMC5883L_GAIN_1370);
             return true;
         }
 
         geometry_msgs__msg__Vector3 readAccelerometer() override
         {
+            // Seem to be reading bogus values from the accelerometer.
+            // Is it my particular IMU or a bug in the code?
+            // Disable its use for now.
+#if 0            
             // here you can override readAccelerometer function and use the sensor's driver API
             // to grab the data from accelerometer and return as a Vector3 object
             int16_t ax, ay, az;
@@ -79,6 +97,11 @@ class GY85IMU: public IMUInterface
             accel_.x = ax * (double) accel_scale_ * g_to_accel_;
             accel_.y = ay * (double) accel_scale_ * g_to_accel_;
             accel_.z = az * (double) accel_scale_ * g_to_accel_;
+#else
+            accel_.x = 0.0;
+            accel_.y = 0.0;            
+            accel_.z = g_to_accel_;            
+#endif            
 
             return accel_;
         }
@@ -96,6 +119,28 @@ class GY85IMU: public IMUInterface
             gyro_.z = gz * (double) gyro_scale_ * DEG_TO_RAD;
 
             return gyro_;
+        }
+
+        geometry_msgs__msg__Vector3 readMagnetometer() override
+        {
+            int16_t x, y, z = 0;
+            mag_.getHeading(&x, &y, &z);
+            if (x == HMC5883L_INVALID_RAW_GAUSS ||
+                y == HMC5883L_INVALID_RAW_GAUSS ||
+                z == HMC5883L_INVALID_RAW_GAUSS)
+            {
+                mag_field_.x = NAN;
+                mag_field_.y = NAN;
+                mag_field_.z = NAN;
+            }
+            else
+            {          
+                // Reporting using NED (x->North, y->East, z-Down) frame ref
+                mag_field_.x =  x*HMC5883L_GAIN_1370_SCALE/MILLI_GAUSS_PER_TELSA;
+                mag_field_.y =  y*HMC5883L_GAIN_1370_SCALE/MILLI_GAUSS_PER_TELSA;
+                mag_field_.z =  -z*HMC5883L_GAIN_1370_SCALE/MILLI_GAUSS_PER_TELSA;
+            }
+            return mag_field_;
         }
 };
 
@@ -259,13 +304,12 @@ class MPU9250IMU: public IMUInterface
         geometry_msgs__msg__Vector3 readAccelerometer() override
         {
             int16_t ax, ay, az;
-            
+
             accelerometer_.getAcceleration(&ax, &ay, &az);
 
             accel_.x = ax * (double) accel_scale_ * g_to_accel_;
             accel_.y = ay * (double) accel_scale_ * g_to_accel_;
             accel_.z = az * (double) accel_scale_ * g_to_accel_;
-
             return accel_;
         }
 

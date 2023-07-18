@@ -322,6 +322,7 @@ class ADXL345 {
         uint8_t getIntOverrunSource();
         
         // DATA_FORMAT register
+        uint8_t getDataFormat();
         uint8_t getSelfTestEnabled();
         void setSelfTestEnabled(uint8_t enabled);
         uint8_t getSPIMode();

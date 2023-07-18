@@ -1366,6 +1366,15 @@ uint8_t ADXL345::getIntOverrunSource() {
 
 // DATA_FORMAT register
 
+/** Get data format register
+ * @return ADXL345_RA_DATA_FORMAT register
+ * @see ADXL345_RA_DATA_FORMAT
+ */
+uint8_t ADXL345::getDataFormat() {
+    I2Cdev::readByte(devAddr, ADXL345_RA_DATA_FORMAT, buffer);
+    return buffer[0];
+}
+
 /** Get self-test force enabled.
  * A setting of 1 in the SELF_TEST bit applies a self-test force to the sensor,
  * causing a shift in the output data. A value of 0 disables the self-test

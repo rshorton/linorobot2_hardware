@@ -16,17 +16,21 @@
 #define IMU_INTERFACE
 
 #include <sensor_msgs/msg/imu.h>
+#include <sensor_msgs/msg/magnetic_field.h>
 
 class IMUInterface
 {
     protected:
         sensor_msgs__msg__Imu imu_msg_;
+        sensor_msgs__msg__MagneticField mag_field_msg_;
+
         const float g_to_accel_ = 9.81;
         const float mgauss_to_utesla_ = 0.1;
         const float utesla_to_tesla_ = 0.000001;
 
         float accel_cov_ = 0.00001;
         float gyro_cov_ = 0.00001;
+        float mag_field_cov_ = 0.00001;
         const int sample_size_ = 40;
 
         geometry_msgs__msg__Vector3 gyro_cal_;
@@ -54,10 +58,12 @@ class IMUInterface
         IMUInterface()
         {
             imu_msg_.header.frame_id = micro_ros_string_utilities_set(imu_msg_.header.frame_id, "imu_link");
+            mag_field_msg_.header.frame_id = micro_ros_string_utilities_set(mag_field_msg_.header.frame_id, "imu_link");
         }
 
         virtual geometry_msgs__msg__Vector3 readAccelerometer() = 0;
         virtual geometry_msgs__msg__Vector3 readGyroscope() = 0;
+        virtual geometry_msgs__msg__Vector3 readMagnetometer() = 0;
         virtual bool startSensor() = 0;
 
         bool init()
@@ -94,7 +100,19 @@ class IMUInterface
             imu_msg_.linear_acceleration_covariance[4] = accel_cov_;
             imu_msg_.linear_acceleration_covariance[8] = accel_cov_;
 
+            // Indicate orientation not supported
+            imu_msg_.orientation_covariance[0] = -1.0;
+
             return imu_msg_;
+        }
+
+        sensor_msgs__msg__MagneticField getMagneticField()
+        {
+            mag_field_msg_.magnetic_field = readMagnetometer();
+            mag_field_msg_.magnetic_field_covariance[0] = mag_field_cov_;
+            mag_field_msg_.magnetic_field_covariance[4] = mag_field_cov_;
+            mag_field_msg_.magnetic_field_covariance[8] = mag_field_cov_;
+            return mag_field_msg_;
         }
 };
 
