@@ -101,7 +101,7 @@ class IMUInterface
             imu_msg_.linear_acceleration_covariance[8] = accel_cov_;
 
             // Indicate orientation not supported
-            imu_msg_.orientation_covariance[0] = -1.0;
+            //imu_msg_.orientation_covariance[0] = -1.0;
 
             return imu_msg_;
         }

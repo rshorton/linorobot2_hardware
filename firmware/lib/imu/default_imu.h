@@ -135,10 +135,9 @@ class GY85IMU: public IMUInterface
             }
             else
             {          
-                // Reporting using NED (x->North, y->East, z-Down) frame ref
                 mag_field_.x =  x*HMC5883L_GAIN_1370_SCALE/MILLI_GAUSS_PER_TELSA;
                 mag_field_.y =  y*HMC5883L_GAIN_1370_SCALE/MILLI_GAUSS_PER_TELSA;
-                mag_field_.z =  -z*HMC5883L_GAIN_1370_SCALE/MILLI_GAUSS_PER_TELSA;
+                mag_field_.z =  z*HMC5883L_GAIN_1370_SCALE/MILLI_GAUSS_PER_TELSA;
             }
             return mag_field_;
         }
