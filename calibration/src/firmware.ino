@@ -69,6 +69,9 @@ void setup()
     Serial.println("");
     Serial.println("Type 'spin' or 's' and press enter to spin the motors.");
     Serial.println("Type 'sample' or 'c' and press enter to spin the motors with motor summary.");
+    Serial.println("Type 'm' to test magnetometer.");
+    Serial.println("Type 'a' to test accelerometer.");
+    Serial.println("Type '1' to output magnetometer in UNI format for calibration.");
     Serial.println("Press enter to clear command.");
     Serial.println("");
 
@@ -110,6 +113,12 @@ void loop()
             cmd = "";
             Serial.println("\r\n");
             accelerometerTest();
+        }
+        else if(character == '\r' and cmd.equals("1\r"))
+        {
+            cmd = "";
+            Serial.println("\r\n");
+            magnetometerCalOutput();
         }
         else if(character == '\r')
         {
@@ -342,5 +351,46 @@ void accelerometerTest()
         Serial.print(", ");
         Serial.println(z);
         delay(1000);
+    }
+}
+
+void magnetometerCalOutput()
+{
+    HMC5883L mag;
+
+    Wire.begin();
+
+    while(!mag.testConnection())
+    {
+        Serial.println("Magnetometer not detected");
+        delay(1000);
+    }
+
+    mag.initialize();
+    mag.setMode(HMC5883L_MODE_CONTINUOUS);
+    mag.setDataRate(HMC5883L_RATE_15);
+    mag.setGain(HMC5883L_GAIN_1370);
+
+    int16_t x, y, z = 0;
+    while(true)
+    {
+        mag.getHeading(&x, &y, &z);
+        if (x != HMC5883L_INVALID_RAW_GAUSS &&
+            y != HMC5883L_INVALID_RAW_GAUSS &&
+            z != HMC5883L_INVALID_RAW_GAUSS)
+        {
+            float xg = x*HMC5883L_GAIN_1370_SCALE;
+            float yg = y*HMC5883L_GAIN_1370_SCALE;
+            float zg = z*HMC5883L_GAIN_1370_SCALE;
+
+            // In uT units
+            Serial.print("Uni:0,0,0,0,0,0,");
+            Serial.print(xg, 6);
+            Serial.print(", ");
+            Serial.print(yg, 6);
+            Serial.print(", ");
+            Serial.println(zg, 6);
+        }
+        delay(10);
     }
 }
