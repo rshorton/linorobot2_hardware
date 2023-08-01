@@ -303,7 +303,7 @@ void createEntities()
         &twist_subscriber, 
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
-        "cmd_vel"
+        "cmd_vel/muxed"
     ));
 
     // create timer for actuating the motors at 50 Hz
