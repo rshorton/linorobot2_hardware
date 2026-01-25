@@ -15,11 +15,15 @@
 #ifndef MOTOR_INTERFACE
 #define MOTOR_INTERFACE
 
-class MotorInterface
+#include "direction_provider.h"
+
+class MotorInterface: public DirectionProvider
 {
     protected:
     bool invert_;
-    float ave_current_;
+    float ave_current_{0.0f};
+    bool last_dir_fwd_{true};
+
     protected:
         virtual void forward(int pwm) = 0;
         virtual void reverse(int pwm) = 0;
@@ -53,6 +57,8 @@ class MotorInterface
             ave_current_ = ave_current_*0.9 + 0.1*readCurrent();
             return ave_current_;
         }
+
+        bool is_dir_fwd() { return last_dir_fwd_; }
 };
 
 #endif

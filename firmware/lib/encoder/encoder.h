@@ -58,6 +58,7 @@
 #define ENCODER_ISR_ATTR
 #endif
 
+#include "encoder_interface.h"
 
 
 // All the data needed by interrupts is consolidated into this ugly struct
@@ -71,12 +72,14 @@ typedef struct {
 	IO_REG_TYPE            pin2_bitmask;
 	uint8_t                state;
 	int32_t                position;
-} Encoder_internal_state_t;
+} EncoderQuadrature_internal_state_t;
 
-class Encoder
+class EncoderQuadrature: public EncoderInterface
 {
 public:
-	Encoder(uint8_t pin1, uint8_t pin2, int counts_per_rev, bool invert=false) {
+	EncoderQuadrature(uint8_t pin1, uint8_t pin2, int counts_per_rev, bool invert=false) :
+		EncoderInterface()
+  {
 		uint8_t temp_pin = pin1;
 		if(invert)
 		{
@@ -180,13 +183,13 @@ public:
 private:
 	int counts_per_rev_;
 	unsigned long prev_update_time_;
-    long prev_encoder_ticks_;
-	Encoder_internal_state_t encoder;
+  long prev_encoder_ticks_;
+	EncoderQuadrature_internal_state_t encoder;
 #ifdef ENCODER_USE_INTERRUPTS
 	uint8_t interrupts_in_use;
 #endif
 public:
-	static Encoder_internal_state_t * interruptArgs[ENCODER_ARGLIST_SIZE];
+	static EncoderQuadrature_internal_state_t * interruptArgs[ENCODER_ARGLIST_SIZE];
 
 //                           _______         _______       
 //               Pin1 ______|       |_______|       |______ Pin1
@@ -239,7 +242,7 @@ public:
 	// update() is not meant to be called from outside Encoder,
 	// but it is public to allow static interrupt routines.
 	// DO NOT call update() directly from sketches.
-	static void update(Encoder_internal_state_t *arg) {
+	static void update(EncoderQuadrature_internal_state_t *arg) {
 #if defined(__AVR__)
 		// The compiler believes this is just 1 line of code, so
 		// it will inline this function into each interrupt
@@ -412,7 +415,7 @@ private:
 	// this giant function is an unfortunate consequence of Arduino's
 	// attachInterrupt function not supporting any way to pass a pointer
 	// or other context to the attached function.
-	static uint8_t attach_interrupt(uint8_t pin, Encoder_internal_state_t *state) {
+	static uint8_t attach_interrupt(uint8_t pin, EncoderQuadrature_internal_state_t *state) {
 		switch (pin) {
 		#ifdef CORE_INT0_PIN
 			case CORE_INT0_PIN:

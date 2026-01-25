@@ -20,14 +20,26 @@
 class PID
 {
     public:
-        PID(float min_val, float max_val, float kp, float ki, float kd);
-        double compute(float setpoint, float measured_value);
+        PID(float min_val, float max_val, float kp, float ki, float kd, double max_error_for_integral_factor = std::numeric_limits<double>::max());
+        double compute(float setpoint, float measured_value, bool limit_dir_change = true);
         void updateConstants(float kp, float ki, float kd);
+
         void updateKp(float kp);
         void updateKd(float kd);
         void updateKi(float ki);
 
+        float get_kp() const {
+            return kp_;
+        }
+        float get_ki() const {
+            return ki_;
+        }
+        float get_kd() const {
+            return kd_;
+        }
+
         void reset();
+        double getLastComputedValue() const { return pid_constrained_; }
 
         // For diagnostics
         double getError() const { return prev_error_; }
@@ -42,6 +54,7 @@ class PID
         float kp_;
         float ki_;
         float kd_;
+        double max_error_for_integral_factor_;
         double integral_;
         double derivative_;
         double prev_error_;

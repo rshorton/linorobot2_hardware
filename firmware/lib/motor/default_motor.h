@@ -78,7 +78,6 @@ class Generic1: public MotorInterface
         float voltage_ref;
         int last_pwm;
         float current_ave;
-        int *dir_status_out_;
 
     protected:
         void forward(int pwm) override
@@ -86,9 +85,7 @@ class Generic1: public MotorInterface
             digitalWrite(in_pin_, HIGH);
             analogWrite(pwm_pin_, abs(pwm));
             last_pwm = pwm;
-            if (dir_status_out_) {
-                *dir_status_out_ = invert_? 0: 1;
-            }                
+            last_dir_fwd_ = invert_? 0: 1;
         }
 
         void reverse(int pwm) override
@@ -96,21 +93,18 @@ class Generic1: public MotorInterface
             digitalWrite(in_pin_, LOW);
             analogWrite(pwm_pin_, abs(pwm));
             last_pwm = pwm;
-            if (dir_status_out_) {
-                *dir_status_out_ = invert_? 1: 0;
-            }                
+            last_dir_fwd_ = invert_? 1: 0;
         }
 
     public:
-        Generic1(float pwm_frequency, int pwm_bits, bool invert, int pwm_pin, int in_pin, int unused=-1, int current_pin= -1, int *dir_status_out = NULL): 
+        Generic1(float pwm_frequency, int pwm_bits, bool invert, int pwm_pin, int in_pin, int unused=-1, int current_pin= -1): 
             MotorInterface(invert),
             in_pin_(in_pin),
             pwm_pin_(pwm_pin),
             current_pin_(current_pin),
             voltage_ref(2.5),
             last_pwm(0),
-            current_ave(0.0),
-            dir_status_out_(dir_status_out)
+            current_ave(0.0)
         {
             pinMode(in_pin_, OUTPUT);
             pinMode(pwm_pin_, OUTPUT);

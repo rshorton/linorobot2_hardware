@@ -29,8 +29,10 @@
  * measuring RPM
  */
 
-#ifndef Encoder_h_
-#define Encoder_h_
+#ifndef EncoderSinglePhase_h_
+#define EncoderSinglePhase_h_
+
+#undef DEBUG_PRINTS
 
 #if defined(ARDUINO) && ARDUINO >= 100
 #include "Arduino.h"
@@ -40,6 +42,8 @@
 #include "WProgram.h"
 #include "pins_arduino.h"
 #endif
+
+#include <math.h>
 
 #include "utility/direct_pin_read.h"
 
@@ -54,6 +58,9 @@
 #define ENCODER_ARGLIST_SIZE 0
 #endif
 
+#include "encoder_interface.h"
+#include "direction_provider.h"
+
 // Use ICACHE_RAM_ATTR for ISRs to prevent ESP8266 resets
 #if defined(ESP8266) || defined(ESP32)
 #define ENCODER_ISR_ATTR ICACHE_RAM_ATTR
@@ -61,24 +68,43 @@
 #define ENCODER_ISR_ATTR
 #endif
 
-typedef struct {
-	int32_t                position;
-	int					 * dir_status_out;
-} Encoder_internal_state_t;
+namespace {
+		const int TICK_HIST_LEN = 20;
+		const int MAX_RPM_CALC_WINDOW_US = 250000;
+}
 
-class Encoder
+class EncoderSinglePhase_internal_state_t {
+public:	
+	EncoderSinglePhase_internal_state_t(DirectionProvider &dir_provider):
+		dir_provider(dir_provider),
+		position(0),
+		hist_idx(0),
+		hist_cnt(0),
+		last_dir_fwd(false)
+	{};
+
+	DirectionProvider &dir_provider;	
+	int32_t           position;
+
+	int hist_idx;
+	int hist_cnt;
+	bool last_dir_fwd;
+  unsigned long tic_time[TICK_HIST_LEN] = {0,};
+};
+
+class EncoderSinglePhase: public EncoderInterface
 {
 public:
-	Encoder(uint8_t pin1, uint8_t pin2, int counts_per_rev, bool invert, int *dir_status_out):
-		counts_per_rev_(counts_per_rev), prev_encoder_ticks_(0), prev_update_time_(0) {
-
-		(void)pin2;
+	EncoderSinglePhase(uint8_t pin1, uint8_t pin2, int counts_per_rev, bool invert, DirectionProvider &dir_provider):
+		EncoderInterface(),
+		counts_per_rev_(counts_per_rev),
+		encoder(dir_provider)
+	{
+ 	  (void)pin2;
 		(void)invert;
 
-		encoder.dir_status_out = dir_status_out;
 		pinMode(pin1, INPUT);
 		counts_per_rev_ = counts_per_rev;	
-		encoder.position = 0;
 
 #ifdef ENCODER_USE_INTERRUPTS
 		attach_interrupt(pin1, &encoder);
@@ -107,43 +133,98 @@ public:
 	}
 
 	float getRPM(){
-		long encoder_ticks = read();
-		//this function calculates the motor's RPM based on encoder ticks and delta time
+		noInterrupts();
 		unsigned long current_time = micros();
-		unsigned long dt = current_time - prev_update_time_;
 
-		//convert the time from microseconds to minutes
-		double dtm = (double)dt / 60000000;
-		double delta_ticks = encoder_ticks - prev_encoder_ticks_;
+		int idx = encoder.hist_idx;
+		unsigned long t2 = encoder.tic_time[idx];
+		unsigned long accum = 0;
+		bool last_dir_fwd = encoder.last_dir_fwd;
+		int tic_cnt = 0;
 
-		//calculate wheel's speed (RPM)
-		prev_update_time_ = current_time;
-		prev_encoder_ticks_ = encoder_ticks;
-		return ((delta_ticks / counts_per_rev_) / dtm);
+#ifdef DEBUG_PRINTS	
+		auto hist_cnt = encoder.hist_cnt;
+#endif		
+
+		for (int i = 0; i < encoder.hist_cnt - 1; i++) {
+			if (--idx < 0) {
+				idx = TICK_HIST_LEN - 1;
+			}
+			auto t = encoder.tic_time[idx];
+			// Only look as far back as the calc window unless
+			// too few tics currently seen for that window (moving slowly).
+			if ((current_time - t > MAX_RPM_CALC_WINDOW_US && tic_cnt > 5) ||
+					current_time - t > MAX_RPM_CALC_WINDOW_US*4) {
+				break;
+			}
+			if (t2 > t) {
+				accum += t2 - t;
+				tic_cnt++;
+			}				
+			t2 = t;
+		}
+		interrupts();
+
+		float rpm = 0.0f;
+		if (accum > 0) {
+			rpm = 60000000.0f*((float)tic_cnt/(float)counts_per_rev_)/(float)accum*(last_dir_fwd? 1.0f: -1.0f);
+		}
+
+#ifdef DEBUG_PRINTS	
+		Serial.print("Tick history, idx: ");
+ 	  Serial.print(encoder.hist_idx);
+		Serial.print(", tic_cnt: ");
+		Serial.print(tic_cnt);
+		Serial.print(", hist_cnt: ");
+		Serial.print(hist_cnt);
+		Serial.print(", ");
+
+		for (int i = 0; i < TICK_HIST_LEN; i++) {
+  	  Serial.print(encoder.tic_time[i]);
+    	Serial.print(" ");
+		}
+  	Serial.println("\r\n");
+#endif		
+
+		return rpm;
 	}
 
 private:
 	int counts_per_rev_;
-	unsigned long prev_update_time_;
-    long prev_encoder_ticks_;
-	Encoder_internal_state_t encoder;
+	unsigned long prev_update_time_{0};
+  long prev_encoder_ticks_{0};
+	EncoderSinglePhase_internal_state_t encoder;
 
 public:
-	static Encoder_internal_state_t * interruptArgs[ENCODER_ARGLIST_SIZE];
+	static EncoderSinglePhase_internal_state_t * interruptArgs[ENCODER_ARGLIST_SIZE];
 
 public:
 	// update() is not meant to be called from outside Encoder,
 	// but it is public to allow static interrupt routines.
 	// DO NOT call update() directly from sketches.
-	static void update(Encoder_internal_state_t *arg) {
+	static void update(EncoderSinglePhase_internal_state_t *arg) {
 
 		// Motors with a single Hall effect sensor.
-		// dir out status is set by motor driver (yeah a hack)
-		if (*arg->dir_status_out) {
+		// Motor class provides method to query current direction
+		bool fwd = arg->dir_provider.is_dir_fwd();
+		if (fwd) {
 			arg->position++;
 		} else {
 			arg->position--;
 		}
+
+		// Reset the history if the direction changed
+		if (arg->last_dir_fwd != fwd) {
+			arg->hist_cnt = 1;
+		} else if (arg->hist_cnt < TICK_HIST_LEN) {
+			arg->hist_cnt++;
+		}
+		arg->last_dir_fwd = fwd;
+
+		if (++arg->hist_idx >= TICK_HIST_LEN) {
+			arg->hist_idx = 0;
+		}
+		arg->tic_time[arg->hist_idx] = micros();
 	}
 private:
 
@@ -151,7 +232,7 @@ private:
 	// this giant function is an unfortunate consequence of Arduino's
 	// attachInterrupt function not supporting any way to pass a pointer
 	// or other context to the attached function.
-	static uint8_t attach_interrupt(uint8_t pin, Encoder_internal_state_t *state) {
+	static uint8_t attach_interrupt(uint8_t pin, EncoderSinglePhase_internal_state_t *state) {
 		switch (pin) {
 		#ifdef CORE_INT0_PIN
 			case CORE_INT0_PIN:

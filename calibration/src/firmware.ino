@@ -13,124 +13,161 @@
 // limitations under the License.
 
 #include <Arduino.h>
+#include <stdio.h>
 #include "config.h"
 #include "motor.h"
 #define ENCODER_USE_INTERRUPTS
-#define ENCODER_OPTIMIZE_INTERRUPTS
-#if defined(NO_ENCODER)
-#include "encoder_none.h"
-#else
+#include "encoder_single_phase.h"
 #include "encoder.h"
-#endif
 #include "kinematics.h"
+#include "motor_speed_controller.h"
+#include "linear_actuator.h"
+#include "steering_using_linear_actuator.h"
+#include "steering_angle_to_actuator_mapper_ebot_ackerman.h"
 #include "HMC5883L.h"
 #include "ADXL345.h"
+#include <float.h>
+#include <cmath>
 
-#define SAMPLE_TIME 10 //s
+#define SAMPLE_TIME     10 //s
+#define ONE_SEC_IN_US   1000000
+#define ONE_SEC_IN_MS   1000
 
-int m1_dir_status = 0;
-int m2_dir_status = 0;
-int m3_dir_status = 0;
-int m4_dir_status = 0;
+//////////////////////////////////
+// Wheel related
+//////////////////////////////////
 
-Encoder motor1_encoder(MOTOR1_ENCODER_A, MOTOR1_ENCODER_B, COUNTS_PER_REV1, MOTOR1_ENCODER_INV, &m1_dir_status);
-Encoder motor2_encoder(MOTOR2_ENCODER_A, MOTOR2_ENCODER_B, COUNTS_PER_REV2, MOTOR2_ENCODER_INV, &m2_dir_status);
-Encoder motor3_encoder(MOTOR3_ENCODER_A, MOTOR3_ENCODER_B, COUNTS_PER_REV3, MOTOR3_ENCODER_INV, &m3_dir_status);
-Encoder motor4_encoder(MOTOR4_ENCODER_A, MOTOR4_ENCODER_B, COUNTS_PER_REV4, MOTOR4_ENCODER_INV, &m4_dir_status);
+// Motors
 
-Motor motor1_controller(PWM_FREQUENCY, PWM_BITS, MOTOR1_INV, MOTOR1_PWM, MOTOR1_IN_A, MOTOR1_IN_B, -1, &m1_dir_status);
-Motor motor2_controller(PWM_FREQUENCY, PWM_BITS, MOTOR2_INV, MOTOR2_PWM, MOTOR2_IN_A, MOTOR2_IN_B, -1, &m2_dir_status);
-Motor motor3_controller(PWM_FREQUENCY, PWM_BITS, MOTOR3_INV, MOTOR3_PWM, MOTOR3_IN_A, MOTOR3_IN_B, -1, &m3_dir_status);
-Motor motor4_controller(PWM_FREQUENCY, PWM_BITS, MOTOR4_INV, MOTOR4_PWM, MOTOR4_IN_A, MOTOR4_IN_B, -1, &m4_dir_status);
+Motor motor1_controller(PWM_FREQUENCY, PWM_BITS, MOTOR1_INV, MOTOR1_PWM, MOTOR1_IN_A, MOTOR1_IN_B, -1);
+Motor motor2_controller(PWM_FREQUENCY, PWM_BITS, MOTOR2_INV, MOTOR2_PWM, MOTOR2_IN_A, MOTOR2_IN_B, -1);
+
+#if NUM_BASE_MOTORS == 4
+Motor motor3_controller(PWM_FREQUENCY, PWM_BITS, MOTOR3_INV, MOTOR3_PWM, MOTOR3_IN_A, MOTOR3_IN_B, -1);
+Motor motor4_controller(PWM_FREQUENCY, PWM_BITS, MOTOR4_INV, MOTOR4_PWM, MOTOR4_IN_A, MOTOR4_IN_B, -1);
+#endif
+
+// Encoders
+
+EncoderSinglePhase motor1_encoder(MOTOR1_ENCODER_A, MOTOR1_ENCODER_B, COUNTS_PER_REV1, MOTOR1_ENCODER_INV, motor1_controller);
+EncoderSinglePhase motor2_encoder(MOTOR2_ENCODER_A, MOTOR2_ENCODER_B, COUNTS_PER_REV2, MOTOR2_ENCODER_INV, motor2_controller);
+
+#if NUM_BASE_MOTORS == 4
+EncoderSinglePhase motor3_encoder(MOTOR3_ENCODER_A, MOTOR3_ENCODER_B, COUNTS_PER_REV3, MOTOR3_ENCODER_INV, motor3_controller);
+EncoderSinglePhase motor4_encoder(MOTOR4_ENCODER_A, MOTOR4_ENCODER_B, COUNTS_PER_REV4, MOTOR4_ENCODER_INV, motor4_controller);
+#endif
+
+// Speed controllers
+
+PID motor1_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
+MotorSpeedController motor1_speed_controller(motor1_controller, motor1_encoder, motor1_pid);
+
+PID motor2_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
+MotorSpeedController motor2_speed_controller(motor2_controller, motor2_encoder, motor2_pid);
+
+#if NUM_BASE_MOTORS == 4
+PID motor3_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
+MotorSpeedController motor3_speed_controller(motor3_controller, motor3_encoder, motor3_pid);
+
+PID motor4_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
+MotorSpeedController motor4_speed_controller(motor4_controller, motor4_encoder, motor4_pid);
+#endif
+
+//////////////////////////////////
+// Steering - see comments in lino_base_config file.
+//////////////////////////////////
+
+// Motor
+Motor motor_str_controller(PWM_FREQUENCY, PWM_BITS, MOTOR_STR_INV, MOTOR_STR_PWM, MOTOR_STR_IN_A, MOTOR_STR_IN_B, -1);
+
+// Motor/shaft encoder
+EncoderQuadrature str_motor_enc(STEERMTR_ENCODER_A, STEERMTR_ENCODER_B, STR_MOTOR_ENC_TICKS_PER_REV, MOTOR_STR_ENCODER_INV);
+EncoderNull str_wheel_enc;
+
+// Motor speed controller
+PID motor_spd_pid(STR_SPD_PWM_MIN, STR_SPD_PWM_MAX, STR_SPD_PID_P, STR_SPD_PID_I, STR_SPD_PID_D);
+MotorSpeedController motor_speed_controller(motor_str_controller, str_motor_enc, motor_spd_pid);
+
+// Steering actuator
+PID str_act_pid(STR_ACT_RPM_MIN, STR_ACT_RPM_MAX, STR_ACT_PID_P, STR_ACT_PID_I, STR_ACT_PID_D);
+LinearActuator steering_actuator(LinearActuator::HomeDetection::kSwitch, STR_LEFT_LIMIT_IN,
+                                 motor_speed_controller, str_motor_enc, str_act_pid, 70,
+                                  STR_ACT_MAX_POS, STR_ACT_POS_THRESH);
+
+SteeringAngleToActuatorMapperEbotAckerman steering_angle_to_lin_actuator_mapper;
+
+SteeringUsingLinearActuator steering_using_linear_act(steering_actuator, steering_angle_to_lin_actuator_mapper);
 
 Kinematics kinematics(
-    Kinematics::LINO_BASE, 
-    MOTOR_MAX_RPM, 
-    MAX_RPM_RATIO, 
-    MOTOR_OPERATING_VOLTAGE, 
-    MOTOR_POWER_MAX_VOLTAGE, 
-    WHEEL_DIAMETER, 
-    LR_WHEELS_DISTANCE
-);
+    Kinematics::LINO_BASE,
+    MOTOR_MAX_RPM,
+    MAX_RPM_RATIO,
+    MOTOR_OPERATING_VOLTAGE,
+    MOTOR_POWER_MAX_VOLTAGE,
+    WHEEL_DIAMETER,
+    FR_WHEELS_DISTANCE,
+    LR_WHEELS_DISTANCE);
 
-long long int counts_per_rev[4];
-int total_motors = 4;
-Motor *motors[4] = {&motor1_controller, &motor2_controller, &motor3_controller, &motor4_controller};
-Encoder *encoders[4] = {&motor1_encoder, &motor2_encoder, &motor3_encoder, &motor4_encoder};
-String labels[4] = {"FRONT LEFT - M1: ", "FRONT RIGHT - M2: ", "REAR LEFT - M3: ", "REAR RIGHT - M4: "};
+Motor *motors[] = {&motor1_controller, &motor2_controller
+#if NUM_BASE_MOTORS == 4
+                    ,
+                    &motor3_controller, &motor4_controller
+#endif 
+                   };
+
+EncoderSinglePhase *encoders[] = {&motor1_encoder, &motor2_encoder
+#if NUM_BASE_MOTORS == 4
+                            ,
+                            &motor3_encoder, &motor4_encoder
+#endif
+                           };
+String labels[4] = {"FRONT LEFT - M1: ", "FRONT RIGHT - M2: "
+#if NUM_BASE_MOTORS == 4
+                    ,
+                    "REAR LEFT - M3: ", "REAR RIGHT - M4: "
+#endif                    
+                    };
+int total_motors = sizeof(motors);
+long long int counts_per_rev[sizeof(motors)];
+
+void printHelp()
+{
+    Serial.println("Sampling process will spin the motors at its maximum RPM.");
+    Serial.println("Please ensure that the robot is ELEVATED and there are NO OBSTRUCTIONS to the wheels.");
+    Serial.println("");
+    Serial.println("'s' spin the motors.");
+    Serial.println("'c' spin the motors with motor summary.");
+    Serial.println("'m' show heading using magnetometer.");
+    Serial.println("'a' test accelerometer.");
+    Serial.println("'1' output magnetometer in RAW and UNI format for calibration.");
+    Serial.println("'2' perform hard-iron magnetometer calibration.");
+    Serial.println("'5' Encoder test.");
+    Serial.println("'6' motor speed controller test.");
+    Serial.println("'7' steering linear actuator test.");
+    Serial.println("'8' steering actuator mapper test.");
+    Serial.println("'9' steering controller test (using linear actuator).");
+    Serial.println("");
+}    
 
 void setup()
 {
     Serial.begin(9600);
-    while (!Serial) {
+    while (!Serial)
+    {
     }
-    Serial.println("Sampling process will spin the motors at its maximum RPM.");
-    Serial.println("Please ensure that the robot is ELEVATED and there are NO OBSTRUCTIONS to the wheels.");
-    Serial.println("");
-    Serial.println("Type 'spin' or 's' and press enter to spin the motors.");
-    Serial.println("Type 'sample' or 'c' and press enter to spin the motors with motor summary.");
-    Serial.println("Type 'm' to test magnetometer.");
-    Serial.println("Type 'a' to test accelerometer.");
-    Serial.println("Type '1' to output magnetometer in UNI format for calibration.");
-    Serial.println("Press enter to clear command.");
-    Serial.println("");
+
+    printHelp();
 
     pinMode(MOTOR_RELAY_PWR_OUT, OUTPUT);
     digitalWrite(MOTOR_RELAY_PWR_OUT, HIGH);
-
+    //pinMode(STR_LEFT_LIMIT_IN, INPUT_PULLUP);
 }
 
-void loop()
-{
-    static String cmd = "";
-
-    while (Serial.available())
-    {
-        char character = Serial.read(); 
-        cmd.concat(character); 
-        Serial.print(character);
-        delay(1);
-        if(character == '\r' and (cmd.equals("spin\r") || cmd.equals("s\r")))
-        {
-            cmd = "";
-            Serial.println("\r\n");
-            sampleMotors(0);
-        }
-        else if(character == '\r' and (cmd.equals("sample\r") || cmd.equals("c\r")))
-        {
-            cmd = "";
-            Serial.println("\r\n");
-            sampleMotors(1);
-        }
-        else if(character == '\r' and cmd.equals("m\r"))
-        {
-            cmd = "";
-            Serial.println("\r\n");
-            magnetometerTest();
-        }
-        else if(character == '\r' and cmd.equals("a\r"))
-        {
-            cmd = "";
-            Serial.println("\r\n");
-            accelerometerTest();
-        }
-        else if(character == '\r' and cmd.equals("1\r"))
-        {
-            cmd = "";
-            Serial.println("\r\n");
-            magnetometerCalOutput();
-        }
-        else if(character == '\r')
-        {
-            Serial.println("");
-            cmd = "";
-        }
-    }
-}
 
 void sampleMotors(bool show_summary)
 {
-    if(Kinematics::LINO_BASE == Kinematics::DIFFERENTIAL_DRIVE)
+    if (Kinematics::LINO_BASE == Kinematics::DIFFERENTIAL_DRIVE ||
+        Kinematics::LINO_BASE == Kinematics::ACKERMANN)
     {
         total_motors = 2;
     }
@@ -139,13 +176,12 @@ void sampleMotors(bool show_summary)
     float scaled_max_rpm = ((measured_voltage / MOTOR_OPERATING_VOLTAGE) * MOTOR_MAX_RPM);
     float total_rev = scaled_max_rpm * (SAMPLE_TIME / 60.0);
 
-
-    for(int i=0; i<total_motors; i++)
+    for (int i = 0; i < total_motors; i++)
     {
         encoders[i]->write(0);
-    }        
+    }
 
-    for(int i=0; i<total_motors; i++)
+    for (int i = 0; i < total_motors; i++)
     {
         Serial.print("SPINNING ");
         Serial.print(labels[i]);
@@ -154,36 +190,49 @@ void sampleMotors(bool show_summary)
         unsigned long last_status = micros();
 
         encoders[i]->write(0);
-        while(true)
+        while (true)
         {
-            if(micros() - start_time >= SAMPLE_TIME * 1000000)
+            if (micros() - start_time >= SAMPLE_TIME * ONE_SEC_IN_US)
             {
                 motors[i]->spin(0);
                 Serial.println("");
                 break;
             }
 
-            if(micros() - last_status >= 1000000)
+            if (micros() - last_status >= ONE_SEC_IN_US)
             {
                 last_status = micros();
-                Serial.print(".");
+                Serial.print("M0 Enc cnt: " );
+                Serial.print(encoders[0]->read());
+                Serial.print(", rpm: " );
+                Serial.print(encoders[0]->getRPM());
+                Serial.print(", M1 Enc cnt: " );
+                Serial.print(encoders[1]->read());
+                Serial.print(", rpm: " );
+                Serial.print(encoders[1]->getRPM());
+    #if NUM_MOTORS == 4
+                Serial.print(", M3 Enc cnt: " );
+                Serial.print(encoders[2]->read());
+                Serial.print(", rpm: " );
+                Serial.print(encoders[2]->getRPM());
+                Serial.print(", M4 Enc cnt: " );
+                Serial.print(encoders[3]->read());
+                Serial.print(", rpm: " );
+                Serial.print(encoders[3]->getRPM());
+    #endif            
+                Serial.println("");
+
             }
 
             motors[i]->spin(200);
 
-            Serial.print(encoders[0]->read());
-            Serial.print(" ");
-            Serial.print(encoders[1]->read());
-            Serial.print(" ");
-            Serial.print(encoders[2]->read());
-            Serial.print(" ");
-            Serial.print(encoders[3]->read());
-            Serial.println("\r\n");
         }
-        
+        Serial.println("Next motor");
+
         counts_per_rev[i] = encoders[i]->read() / total_rev;
     }
-    if(show_summary)
+    Serial.println("Finished");
+    if (show_summary)
         printSummary();
 }
 
@@ -196,7 +245,9 @@ void printSummary()
 
     Serial.print(labels[1]);
     Serial.println(encoders[1]->read());
+    Serial.print(" ");
 
+#if NUM_MOTORS == 4
     Serial.print(labels[2]);
     Serial.print(encoders[2]->read());
     Serial.print(" ");
@@ -204,7 +255,7 @@ void printSummary()
     Serial.print(labels[3]);
     Serial.println(encoders[3]->read());
     Serial.println("");
-
+#endif
     Serial.println("================COUNTS PER REVOLUTION=================");
     Serial.print(labels[0]);
     Serial.print(counts_per_rev[0]);
@@ -212,7 +263,9 @@ void printSummary()
 
     Serial.print(labels[1]);
     Serial.println(counts_per_rev[1]);
+    Serial.print(" ");
     
+#if NUM_MOTORS == 4
     Serial.print(labels[2]);
     Serial.print(counts_per_rev[2]);
     Serial.print(" ");
@@ -220,12 +273,13 @@ void printSummary()
     Serial.print(labels[3]);
     Serial.println(counts_per_rev[3]);
     Serial.println("");
+#endif    
 
     Serial.println("====================MAX VELOCITIES====================");
     float max_rpm = kinematics.getMaxRPM();
-    
+
     Kinematics::velocities max_linear = kinematics.getVelocities(max_rpm, max_rpm, max_rpm, max_rpm);
-    Kinematics::velocities max_angular = kinematics.getVelocities(-max_rpm, max_rpm,-max_rpm, max_rpm);
+    Kinematics::velocities max_angular = kinematics.getVelocities(-max_rpm, max_rpm, -max_rpm, max_rpm);
 
     Serial.print("Linear Velocity: +- ");
     Serial.print(max_linear.linear_x);
@@ -234,70 +288,6 @@ void printSummary()
     Serial.print("Angular Velocity: +- ");
     Serial.print(max_angular.angular_z);
     Serial.println(" rad/s");
-}
-
-const int16_t HMC5883L_INVALID_RAW_GAUSS = -4096;
-const float HMC5883L_GAIN_1370_SCALE = 0.73;
-const float MILLI_GAUSS_PER_TELSA = 10000000.0;
-
-void magnetometerTest()
-{
-    HMC5883L mag;
-
-    Wire.begin();
-
-    while(!mag.testConnection())
-    {
-        Serial.println("Magnetometer not detected");
-        delay(1000);
-    }
-
-    mag.initialize();
-    mag.setMode(HMC5883L_MODE_CONTINUOUS);
-    mag.setDataRate(HMC5883L_RATE_15);
-    mag.setGain(HMC5883L_GAIN_1370);
-
-
-    int16_t x, y, z = 0;
-    while(true)
-    {
-        mag.getHeading(&x, &y, &z);
-        if (x == HMC5883L_INVALID_RAW_GAUSS ||
-            y == HMC5883L_INVALID_RAW_GAUSS ||
-            z == HMC5883L_INVALID_RAW_GAUSS)
-        {
-            Serial.println("Invalid heading");
-        }
-        else
-        {
-            float xg = x*HMC5883L_GAIN_1370_SCALE;
-            float yg = y*HMC5883L_GAIN_1370_SCALE;
-            float zg = z*HMC5883L_GAIN_1370_SCALE;
-
-
-            float heading = atan2(y, x);
-            if (heading < 0)
-            {
-                heading += 2*M_PI;
-            }
-
-            Serial.print("Heading (deg): ");
-            Serial.print(heading*180.0/M_PI);
-            Serial.print(",    Mag(mGs): ");
-            Serial.print(xg, 6);
-            Serial.print(", ");
-            Serial.print(yg, 6);
-            Serial.print(", ");
-            Serial.print(zg, 6);
-            Serial.print(",    Mag(T): ");
-            Serial.print(xg/MILLI_GAUSS_PER_TELSA, 9);
-            Serial.print(", ");
-            Serial.print(yg/MILLI_GAUSS_PER_TELSA, 9);
-            Serial.print(", ");
-            Serial.println(zg/MILLI_GAUSS_PER_TELSA, 9);
-        }
-        delay(1000);
-    }
 }
 
 void accelerometerTest()
@@ -354,10 +344,13 @@ void accelerometerTest()
     }
 }
 
-void magnetometerCalOutput()
-{
-    HMC5883L mag;
+const int16_t HMC5883L_INVALID_RAW_GAUSS = -4096;
+const float HMC5883L_GAIN_1370_SCALE = 0.73;
+const float MILLI_GAUSS_PER_TELSA = 10000000.0;
+const float MILLI_GAUSS_PER_U_TELSA_X10 = 1.0;
 
+void magnetometerInit(HMC5883L &mag)
+{
     Wire.begin();
 
     while(!mag.testConnection())
@@ -370,27 +363,678 @@ void magnetometerCalOutput()
     mag.setMode(HMC5883L_MODE_CONTINUOUS);
     mag.setDataRate(HMC5883L_RATE_15);
     mag.setGain(HMC5883L_GAIN_1370);
+}
 
+bool magnetometerRead(HMC5883L &mag, float (&mag_data)[3])
+{
     int16_t x, y, z = 0;
+    mag.getHeading(&x, &y, &z);
+    if (x != HMC5883L_INVALID_RAW_GAUSS &&
+        y != HMC5883L_INVALID_RAW_GAUSS &&
+        z != HMC5883L_INVALID_RAW_GAUSS)
+    {
+        // units: uT x 10
+        mag_data[0] = x*HMC5883L_GAIN_1370_SCALE;
+        mag_data[1] = y*HMC5883L_GAIN_1370_SCALE;
+        mag_data[2] = z*HMC5883L_GAIN_1370_SCALE;
+        return true;
+    }
+    return false;
+}
+
+void magnetometerOutputDataForCal()
+{
+    HMC5883L mag;
+    magnetometerInit(mag);
+
+    float mag_data[3];
+
     while(true)
     {
-        mag.getHeading(&x, &y, &z);
-        if (x != HMC5883L_INVALID_RAW_GAUSS &&
-            y != HMC5883L_INVALID_RAW_GAUSS &&
-            z != HMC5883L_INVALID_RAW_GAUSS)
-        {
-            float xg = x*HMC5883L_GAIN_1370_SCALE;
-            float yg = y*HMC5883L_GAIN_1370_SCALE;
-            float zg = z*HMC5883L_GAIN_1370_SCALE;
+        if (magnetometerRead(mag, mag_data)) {
+            Serial.print("Raw:0,0,0,0,0,0,");
+            Serial.print((int)(mag_data[0]));
+            Serial.print(",");
+            Serial.print((int)(mag_data[1]));
+            Serial.print(",");
+            Serial.println((int)(mag_data[2]));
 
-            // In uT units
+            // In uT units x10
             Serial.print("Uni:0,0,0,0,0,0,");
-            Serial.print(xg, 6);
+            Serial.print(mag_data[0]/10.0, 6);
             Serial.print(", ");
-            Serial.print(yg, 6);
+            Serial.print(mag_data[1]/10.0, 6);
             Serial.print(", ");
-            Serial.println(zg, 6);
+            Serial.println(mag_data[2]/10.0, 6);
         }
         delay(10);
+    }
+}
+
+#undef USE_PREV_OFFSET
+
+void magnetometerHardIronCal()
+{
+    HMC5883L mag;
+    magnetometerInit(mag);
+
+    float mag_data[3];
+    float mag_min[3] = {FLT_MAX, FLT_MAX, FLT_MAX};
+    float mag_max[3] = {FLT_MIN, FLT_MIN, FLT_MIN};
+#if defined(USE_PREV_OFFSET)
+    float mag_ofst[3] = {-93.07, -122.27, 44.165};
+#else
+    float mag_ofst[3] = {0, 0, 0};
+#endif
+
+    while(true)
+    {
+        if (magnetometerRead(mag, mag_data)) {
+
+            for (int i = 0; i < 3; i++) {
+                if (mag_data[i] < mag_min[i]) {
+                   mag_min[i] = mag_data[i];
+                } else if (mag_data[i] > mag_max[i]) {
+                    mag_max[i] = mag_data[i];
+                }
+
+#if !defined(USE_PREV_OFFSET)
+                mag_ofst[i] = (mag_min[i] + mag_max[i])/2;
+#endif                
+            }
+
+            for (int i = 0; i < 3; i++) {
+                Serial.print(mag_data[i], 1);
+                Serial.print(", ");
+            }
+
+            Serial.print("   min/max: ");
+            for (int i = 0; i < 3; i++) {
+                Serial.print(mag_min[i], 1);
+                Serial.print(", ");
+                Serial.print(mag_max[i], 1);
+                Serial.print(", ");
+            }
+
+            Serial.print("   offset: ");
+            for (int i = 0; i < 3; i++) {
+                Serial.print(mag_ofst[i], 1);
+                Serial.print(", ");
+            }
+
+            Serial.print("   mag-offset: ");
+            for (int i = 0; i < 3; i++) {
+                Serial.print(mag_data[i] - mag_ofst[i], 1);
+                Serial.print(", ");
+            }
+
+            Serial.print("  heading: ");
+            Serial.println(atan2(mag_data[0] - mag_ofst[0], mag_data[1] - mag_ofst[1])*180.0/M_PI);
+        }
+        delay(10);
+    }
+}
+
+// This method assumes calibration has been applied by the IMU lib
+void magnetometerShowHeading()
+{
+    HMC5883L mag;
+    magnetometerInit(mag);
+
+    float mag_data[3];
+
+    while(true)
+    {
+        if (magnetometerRead(mag, mag_data)) {
+
+            float heading = atan2(mag_data[0], mag_data[1]);
+
+            Serial.print("Heading (deg): ");
+            Serial.print(heading*180.0/M_PI);
+            Serial.print(",    Mag(mGs): ");
+            Serial.print(mag_data[0], 6);
+            Serial.print(", ");
+            Serial.print(mag_data[1], 6);
+            Serial.print(", ");
+            Serial.print(mag_data[2], 6);
+            Serial.print(",    Mag(T): ");
+            Serial.print(mag_data[0]/MILLI_GAUSS_PER_TELSA, 9);
+            Serial.print(", ");
+            Serial.print(mag_data[1]/MILLI_GAUSS_PER_TELSA, 9);
+            Serial.print(", ");
+            Serial.println(mag_data[2]/MILLI_GAUSS_PER_TELSA, 9);
+        }
+        delay(10);
+    }
+}
+
+void encoderTest(Motor &motor, EncoderInterface &encoder)
+{
+    int spd = 0;
+    motor.spin(spd);
+
+    unsigned long start_time = micros();
+
+    bool run = true;
+    while (run)
+    {
+        if (Serial.available())
+        {
+            char c = Serial.read();
+            Serial.print(c);
+            delay(1);
+
+            switch (c)
+            {
+                case '+':
+                {
+                    spd += 20;
+                    motor.spin(spd);
+                    break;
+                }
+                case '-':
+                {
+                    spd -= 20;
+                    motor.spin(spd);
+                    break;
+                }
+                case 's':
+                {
+                    spd = 0;
+                    motor.spin(spd);
+                    break;
+                }
+                case 'e':
+                {
+                    run = false;
+                    break;
+                }
+                default:
+                {
+                    break;
+                }
+            }
+        }
+
+        auto now = micros();
+        if (now - start_time >= 500000)
+        {
+            start_time = now;
+            Serial.print("spd ");
+            Serial.print(spd);
+            Serial.print("   RPM ");
+            Serial.print(encoder.getRPM());
+            Serial.print("   Ticks ");
+            Serial.print(encoder.read());
+            Serial.println("\r\n");
+        }
+    }
+}
+
+void motorSpeedControlTest(MotorSpeedController &controller1, MotorSpeedController &controller2)
+{
+    const int num_ctrls = 2;
+
+    struct Controllers {
+        Controllers(MotorSpeedController &controller):
+             controller(controller) {
+                controller.set_rpm(0);
+             }
+        int rpm{0};
+        MotorSpeedController &controller;
+    } controllers[num_ctrls] = {controller1, controller2};
+
+    unsigned long start_time = micros();
+
+    int selected = 0;
+
+    bool run = true;
+    while (run)
+    {
+        Controllers &sel_controller = controllers[selected];
+        int new_rpm = sel_controller.rpm;
+
+        PID &sel_pid = sel_controller.controller.get_pid();
+
+        if (Serial.available())
+        {
+            char c = Serial.read();
+            Serial.print(c);
+            delay(1);
+
+            switch (c)
+            {
+                case '0':
+                {
+                    selected = 0;
+                    continue;
+                }
+                case '1':
+                {
+                    selected = 1;
+                    continue;
+                }
+                case '+':
+                {
+                    if (abs(new_rpm) < 10) {
+                        new_rpm++;
+                    } else {
+                        new_rpm += 10;
+                    }                        
+                    break;
+                }
+                case '-':
+                {
+                    if (abs(new_rpm) <= 10) {
+                        new_rpm--;
+                    } else {
+                        new_rpm -= 10;
+                    }
+                    break;
+                }
+                case 'p':
+                case 'P':
+                {
+                    auto kp = sel_pid.get_kp();
+                    kp += (c == 'p'? -0.1: 0.1);
+                    sel_pid.updateKp(kp);
+                    Serial.print("Set Kp ");
+                    Serial.println(kp);
+                    break;
+                }
+                case 'i':
+                case 'I':
+                {
+                    auto ki = sel_pid.get_ki();
+                    ki += (c == 'i'? -0.1: 0.1);
+                    sel_pid.updateKi(ki);
+                    Serial.print("Set Ki ");
+                    Serial.println(ki);
+                    break;
+                }
+                case 'd':
+                case 'D':
+                {
+                    auto kd = sel_pid.get_kd();
+                    kd += (c == 'd'? -0.1: 0.1);
+                    sel_pid.updateKd(kd);
+                    Serial.print("Set Kd ");
+                    Serial.println(kd);
+                    break;
+                }
+                case 's':
+                {
+                    new_rpm = 0;
+                    break;
+                }
+                case 'e':
+                {
+                    run = false;
+                    break;
+                }
+                default:
+                {
+                    break;
+                }
+            }
+        }
+
+        if (new_rpm != sel_controller.rpm) {
+            sel_controller.rpm = new_rpm;
+            sel_controller.controller.set_rpm(new_rpm);
+        }
+
+        bool log = false;
+        auto now = micros();
+        if (now - start_time >= 500000) {
+            start_time = now;
+            log = true;
+            Serial.print("SPD Controller test: ");
+        }
+
+
+        for (int i = 0; i < num_ctrls; i++) {
+            controllers[i].controller.update();
+
+            if (log) {
+                Serial.print("Ctrl: ");
+                Serial.print(i);
+                Serial.print("  target RPM: ");
+                Serial.print(controllers[i].rpm);
+                Serial.print("  actual RPM: ");
+                Serial.print(controllers[i].controller.get_rpm());
+                Serial.print("   |   ");
+            }
+        }
+
+        if (log) {
+            Serial.print("Pid(sel), e: ");
+            Serial.print(sel_pid.getError());
+            Serial.print(", ei: ");
+            Serial.print(sel_pid.getIntegral());
+            Serial.print(", ed: ");
+            Serial.print(sel_pid.getDerivative());
+            Serial.print(", or: ");
+            Serial.print(sel_pid.getOutputRaw());
+            Serial.print(", oc: ");
+            Serial.print(sel_pid.getOutputConstrained());
+
+            Serial.println("");
+        }
+    }
+}
+
+void steeringActuatorTest(LinearActuator &actuator, int max_pos, EncoderInterface &encoder)
+{
+    const int invalid_pos = -1;
+    const float invalid_angle = 100.0f;
+
+    actuator.home();
+    
+    unsigned long start_time = micros();
+
+    while (true)
+    {
+        bool control = actuator.get_state() == LinearActuator::State::kControl;
+
+        if (Serial.available())
+        {
+            char c = Serial.read();
+            Serial.print(c);
+            delay(1);
+
+            if (control) {
+                int new_target_pos = invalid_pos;
+                float new_target_angle = invalid_angle;
+                switch (c)
+                {
+                    case '0':
+                    {
+                        new_target_pos = 0;
+                        break;
+                    }
+                    case '1':
+                    {
+                        new_target_pos = max_pos/5;
+                        break;
+                    }
+                    case '2':
+                    {
+                        new_target_pos = max_pos*2/5;
+                        break;
+                    }
+                    case '3':
+                    {
+                        new_target_pos = max_pos*3/5;
+                        break;
+                    }
+                    case '4':
+                    {
+                        new_target_pos = max_pos*4/5;
+                        break;
+                    }
+                    case '5':
+                    {
+                        new_target_pos = max_pos*5/5;
+                        break;
+                    }
+                    default:
+                    {
+                        break;
+                    }
+                }
+                if (new_target_pos != invalid_pos) {
+                    Serial.print("STR ACT TEST: New target position: ");
+                    Serial.print(new_target_pos);
+                    Serial.println("\r\n");
+                    actuator.set_position(new_target_pos);
+                } else if (new_target_angle != invalid_angle) {
+                    Serial.print("STR ACT TEST: New target angle: ");
+                    Serial.print(new_target_angle);
+                    Serial.println("\r\n");
+                    actuator.set_position(new_target_angle);
+                }
+            }
+
+            if (c == 'h') {
+                actuator.home();
+                Serial.println("Re-homing\r\n");
+            } else if (c == 'e') {
+                actuator.disable();
+                Serial.println("Ending test\r\n");
+                break;
+            }
+        }
+
+        actuator.update();
+
+        auto now = micros();
+        if (now - start_time >= 500000)
+        {
+            start_time = now;
+            Serial.print("STR ACT TEST: homing: ");
+            Serial.print(!control);
+            Serial.print(",   Position: ");
+            Serial.print(encoder.read());
+            Serial.println("\r\n");
+        }
+    }
+}
+
+void steeringActuatorMapperTest()
+{
+    SteeringAngleToActuatorMapperEbotAckerman::AngleToCalcValues debug;
+    for (double angle = -40.0; angle <= 40.0; angle += 0.5) {
+        auto asetting = steering_angle_to_lin_actuator_mapper.angle_to_actuator_setting(angle*M_PI/180.0, &debug);
+        Serial.print("Input angle: ");
+        Serial.print(angle);
+        if (angle < 0.0)
+        {
+            Serial.print(" (turning right) ");
+        }
+        else
+        {
+            Serial.print(" (turning left) ");
+        }
+        Serial.print(", RW Angle: ");
+        Serial.print(debug.rw_angle*180.0/M_PI);
+        Serial.print(", TR end_pos mm: ");
+        Serial.print(debug.tie_rod_act_end_pos_mm);
+        Serial.print(", Actuator pos mm: ");
+        Serial.print(debug.act_pos_mm);
+        Serial.print(", Actuator setting (enc ticks), slow: ");
+        Serial.print(asetting);
+
+        auto asetting_fast = steering_angle_to_lin_actuator_mapper.angle_to_actuator_setting_fast(angle*M_PI/180.0);
+        Serial.print(", fast: ");
+        Serial.print(asetting_fast);
+        Serial.print(", Angle from actuator setting: ");
+        auto inv_angle = steering_angle_to_lin_actuator_mapper.actuator_setting_to_angle_fast(asetting);
+        Serial.print(inv_angle*180.0/M_PI);
+
+        Serial.println("\r\n");
+    }
+}
+
+void steeringByLinearActuatorTest(SteeringUsingLinearActuator &steering)
+{
+    const float invalid_angle = 100.0f;
+
+    steering.home();
+    
+    unsigned long start_time = micros();
+
+    while (true)
+    {
+        bool control = steering.get_state() == SteeringUsingLinearActuator::State::kControl;
+
+        if (Serial.available())
+        {
+            char c = Serial.read();
+            Serial.print(c);
+            delay(1);
+
+            if (control) {
+                float new_target_angle = invalid_angle;
+                switch (c)
+                {
+                    case '0':
+                    {
+                        new_target_angle = -27.0;
+                        break;
+                    }
+                    case '1':
+                    {
+                        new_target_angle = -10.0;
+                        break;
+                    }
+                    case '2':
+                    {
+                        new_target_angle = 0.0;
+                        break;
+                    }
+                    case '3':
+                    {
+                        new_target_angle = 10.0;
+                        break;
+                    }
+                    case '4':
+                    {
+                        new_target_angle = 20.0;
+                        break;
+                    }
+                    case '5':
+                    {
+                        new_target_angle = 35.0;
+                        break;
+                    }
+                    default:
+                    {
+                        break;
+                    }
+                }
+                if (new_target_angle != invalid_angle) {
+                    Serial.print("STR ACT TEST: New target angle: ");
+                    Serial.print(new_target_angle);
+                    Serial.println("\r\n");
+                    steering.set_angle(new_target_angle*M_PI/180.0);
+                }
+            }
+
+            if (c == 'h') {
+                steering.home();
+                Serial.println("Re-homing\r\n");
+            } else if (c == 'e') {
+                steering.disable();
+                Serial.println("Ending test\r\n");
+                break;
+            }
+        }
+
+        steering.update();
+
+        auto now = micros();
+        if (now - start_time >= 500000)
+        {
+            start_time = now;
+            Serial.print("STR TEST: homing: ");
+            Serial.print(!control);
+            Serial.print(",   Position (angle): ");
+            Serial.print(steering.get_current_angle()*180.0/M_PI);
+            Serial.println("\r\n");
+        }
+    }
+}
+
+void loop()
+{
+    while (Serial.available())
+    {
+        char c = Serial.read();
+        Serial.print(c);
+        delay(1);
+
+        switch(c)
+        {
+            case 'h':
+            default:
+            {
+                printHelp();
+                break;
+            }            
+            case 's':
+            {
+                Serial.println("\r\n");
+                sampleMotors(0);
+                break;
+            }
+            case 'c':
+            {
+                Serial.println("\r\n");
+                sampleMotors(1);
+                break;
+            }
+            case 'm':
+            {
+                Serial.println("\r\n");
+                magnetometerShowHeading();
+                break;
+            }
+            case 'a':
+            {
+                Serial.println("\r\n");
+                accelerometerTest();
+                break;
+            }
+            case '1':
+            {
+                Serial.println("\r\n");
+                magnetometerOutputDataForCal();
+                break;
+            }
+            case '2':
+            {
+                Serial.println("\r\n");
+                magnetometerHardIronCal();
+                break;
+            }
+            case '5':
+            {
+                Serial.println("\r\n");
+                encoderTest(motor_str_controller, str_motor_enc);
+                break;
+            }
+            case '6':
+            {
+                Serial.println("\r\n");
+                motorSpeedControlTest(motor1_speed_controller, motor2_speed_controller);
+                break;
+            }
+            case '7':
+            {
+                Serial.println("\r\n");
+                steeringActuatorTest(steering_actuator, STR_ACT_MAX_POS, str_motor_enc);
+                break;
+            }
+            case '8':
+            {
+                Serial.println("\r\n");
+                steeringActuatorMapperTest();
+                break;
+            }
+            case '9':
+            {
+                Serial.println("\r\n");
+                steeringByLinearActuatorTest(steering_using_linear_act);
+                break;
+            }
+            case '\r':
+            {
+                // Read various inputs
+                Serial.print("Steering enc: ");
+                Serial.print(str_motor_enc.read());
+                break;
+            }
+        }
     }
 }

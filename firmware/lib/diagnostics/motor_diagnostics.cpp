@@ -53,7 +53,8 @@ void MotorDiags::destroy(rcl_node_t &node)
     rcl_publisher_fini(&motor_diag_publisher_, &node);
 }
 
-void MotorDiags::publish(struct timespec time_stamp, float rpm_req, float rpm_cur, float current, PID const &pid)
+void MotorDiags::publish(struct timespec time_stamp, float rpm_req, float rpm_cur, float current,
+                         PID const &pid, EncoderInterface &encoder)
 {
 #if defined(PUBLISH_MOTOR_DIAGS)
     if (!inited_) {
@@ -71,6 +72,7 @@ void MotorDiags::publish(struct timespec time_stamp, float rpm_req, float rpm_cu
     motor_diag_msg_.pid_derivative = pid.getDerivative();
     motor_diag_msg_.pid_output_raw = pid.getOutputRaw();
     motor_diag_msg_.pid_output = pid.getOutputConstrained();
+    motor_diag_msg_.encoder_tics = encoder.read();
     rcl_publish(&motor_diag_publisher_, &motor_diag_msg_, NULL);
 #endif    
 }

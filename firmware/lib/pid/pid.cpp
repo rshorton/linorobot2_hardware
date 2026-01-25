@@ -16,12 +16,13 @@
 #include "pid.h"
 #include "util.h"
 
-PID::PID(float min_val, float max_val, float kp, float ki, float kd):
+PID::PID(float min_val, float max_val, float kp, float ki, float kd, double max_error_for_integral_factor):
     min_val_(min_val),
     max_val_(max_val),
     kp_(kp),
     ki_(ki),
-    kd_(kd)
+    kd_(kd),
+    max_error_for_integral_factor_(max_error_for_integral_factor)
 {
 }
 
@@ -34,35 +35,41 @@ void PID::reset()
     pid_raw_ = 0.0;
 }
 
-double PID::compute(float setpoint, float measured_value)
+double PID::compute(float setpoint, float measured_value, bool limit_dir_change)
 {
-    double error;
-    double pid;
+    double error = setpoint - measured_value;
 
-    //setpoint is constrained between min and max to prevent pid from having too much error
-    error = setpoint - measured_value;
+    auto prev_integral = integral_;
     integral_ += error;
     derivative_ = error - prev_error_;
 
-    if(setpoint == 0.0 && abs(error) <= 0.05)
+    if (setpoint == 0.0 && abs(error) <= 0.05)
     {
         integral_ = 0;
         derivative_ = 0;
     }
 
+    if (abs(error) > max_error_for_integral_factor_)
+    {
+        integral_ = 0.0;
+    }        
+
     pid_raw_ = (kp_ * error) + (ki_ * integral_) + (kd_ * derivative_);
     prev_error_ = error;
 
-
     pid_constrained_ = constrain(pid_raw_, min_val_, max_val_);
-
+    if (pid_constrained_ != pid_raw_) {
+        integral_ = prev_integral;
+    }
 
     // Don't drive the output in the opposite direction to the current
     // direction
-    if (sgn(measured_value) != 0 && 
-        (sgn(measured_value) != sgn(pid_constrained_))) {
-        reset();
-    }
+    if (limit_dir_change) {
+        if (sgn(measured_value) != 0 && 
+            (sgn(measured_value) != sgn(pid_constrained_))) {
+            reset();
+        }
+    }        
 
     return pid_constrained_;
 }
