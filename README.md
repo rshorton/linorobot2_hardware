@@ -1,7 +1,13 @@
+
+Fix this readme...Elsabot now uses front steering with rear 2WD.
+
+
 ### This is a fork of linorobot2_hardware for the Elsabot 4WD robot base.
 
 See https://github.com/linorobot/linorobot2_hardware for the official readme information for the linorobot2_hardware project.
 
+Dependency (add to firmware/extra_packages directory):
+* elsabot_custom_messages - https://github.com/rshorton/elsabot_custom_messages
 
 # Elsabot 4WD
 
