@@ -23,6 +23,7 @@
 #include <nav_msgs/msg/odometry.h>
 #include <sensor_msgs/msg/imu.h>
 #include <sensor_msgs/msg/magnetic_field.h>
+#include <sensor_msgs/msg/joy.h>
 #include <geometry_msgs/msg/twist.h>
 #include <geometry_msgs/msg/vector3.h>
 #include <std_msgs/msg/float32.h>
@@ -48,6 +49,24 @@
 
 #define TUNE_PID_LOOP               // Allow tweaking of PID parameters via topic write
 
+// Game controller buttons
+const int JOY_BUTTON_LB = 4; // left side, closest to top
+const int JOY_BUTTON_X = 2;  // X
+const int JOY_BUTTON_Y = 3;  // Y
+const int JOY_BUTTON_A = 0;  // A
+const int JOY_BUTTON_B = 1;  // B
+
+const int JOY_AXIS_LEFT_STICK_LR = 0;
+const int JOY_AXIS_LEFT_STICK_UD = 1;
+const int JOY_AXIS_RIGHT_STICK_LR = 2;
+const int JOY_AXIS_RIGHT_STICK_UD = 3;
+
+const int JOY_AXIS_RIGHT_TRIGGER_BUTTON = 4;
+const int JOY_AXIS_LEFT_TRIGGER_BUTTON = 5;
+
+const int JOY_AXIS_DPAD_LR = 6;
+const int JOY_AXIS_DPAD_UD = 7;
+
 #define ERR_BLINK_GENERAL   2
 #define ERR_BLINK_IMU       3
 #define ERR_BLINK_STEERING  4
@@ -60,6 +79,7 @@ rcl_publisher_t odom_publisher;
 rcl_publisher_t imu_publisher;
 rcl_publisher_t imu_mag_field_publisher;
 rcl_subscription_t twist_subscriber;
+rcl_subscription_t joy_subscriber;
 
 #if defined(TUNE_PID_LOOP)
 rcl_subscription_t pid_kp_subscriber;
@@ -76,6 +96,10 @@ sensor_msgs__msg__Imu imu_msg;
 sensor_msgs__msg__MagneticField mag_field_msg;
 geometry_msgs__msg__Twist twist_msg;
 
+sensor_msgs__msg__Joy joy_msg;
+int32_t button_data[9];
+float axes_data[8];
+
 rclc_executor_t executor;
 rclc_support_t support;
 rcl_allocator_t allocator;
@@ -86,10 +110,20 @@ rcl_timer_t sensor_timer;
 unsigned long long time_offset = 0;
 unsigned long prev_cmd_time = 0;
 unsigned long prev_odom_update = 0;
+unsigned long prev_joy_cmd_time = 0;
 bool new_twist_msg = false;
 bool micro_ros_init_successful = false;
 
 const float MIN_MOVING_RPM_THRESH = 1.0f;
+
+const float SPEED_SCALE_TURTLE = 0.15;
+const float SPEED_SCALE_SLOW = 0.30;
+const float SPEED_SCALE_NORMAL = 0.65;
+
+bool ackermann_teleop = true;
+float speed_scale = SPEED_SCALE_SLOW;
+float speed_x_in = 0.0;
+float steering_angle_in = 0.0;
 
 Kinematics::rpm req_rpm;
 Kinematics::rpm last_rpm = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -329,6 +363,47 @@ void pidKiCallback(const void * msgin)
 }
 #endif
 
+void setSpeedScale(float scale)
+{
+    if (scale >= SPEED_SCALE_TURTLE &&
+        scale <= SPEED_SCALE_NORMAL)
+    {
+        speed_scale = scale;
+    }
+}
+
+void joyCallback(const void *msgin)
+{
+    RCLC_UNUSED(msgin);
+
+    if (joy_msg.buttons.data[JOY_BUTTON_X])
+    {
+        setSpeedScale(SPEED_SCALE_SLOW);
+    }
+    else if (joy_msg.buttons.data[JOY_BUTTON_A])
+    {
+        setSpeedScale(SPEED_SCALE_NORMAL);
+    }
+
+    ackermann_teleop = joy_msg.axes.data[JOY_AXIS_LEFT_TRIGGER_BUTTON] == -1;
+    if (ackermann_teleop)
+    {
+        digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+        prev_joy_cmd_time = millis();
+
+        speed_x_in = joy_msg.axes.data[JOY_AXIS_LEFT_STICK_UD] * speed_scale;
+
+        // fix - use steering mapper to determine.
+        const float STEERING_FULL_RANGE_DEG = 60.0f;
+        steering_angle_in = static_cast<float>(joy_msg.axes.data[JOY_AXIS_RIGHT_STICK_LR]) * STEERING_FULL_RANGE_DEG / 2.0f / 180.0f * M_PI;
+    }
+    else
+    {
+        speed_x_in = 0.0;
+        steering_angle_in = 0.0;
+    }
+}
+
 void syncTime()
 {
     // get the current time from the agent
@@ -416,6 +491,14 @@ void createEntities()
         "pid_ki"));
 #endif
 
+    if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
+    {
+        RCCHECK(rclc_subscription_init_default(
+            &joy_subscriber,
+            &node,
+            ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Joy),
+            "joy"));
+    }
     // create twist command subscriber
     RCCHECK(rclc_subscription_init_default(
         &twist_subscriber,
@@ -440,7 +523,12 @@ void createEntities()
         sensorCallback));
 
     executor = rclc_executor_get_zero_initialized_executor();
-    RCCHECK(rclc_executor_init(&executor, &support.context, 2 + 3 + 1, & allocator));
+
+    // WATCHOUT - Update the number of handles if more subscriptions/timers added.
+    // Also make sure the micro_ros.meta specifies enough allocations for subs and pubs.
+    // If this is too small, you should see the ERR_BLINK_GENERAL blink pattern.
+    const int num_handles = 5 /* subscriptions */ + 2 /* timers */;
+    RCCHECK(rclc_executor_init(&executor, &support.context, num_handles, & allocator));
     RCCHECK(rclc_executor_add_subscription(
         &executor,
         &twist_subscriber,
@@ -468,6 +556,24 @@ void createEntities()
         &pidKiCallback,
         ON_NEW_DATA));
 #endif
+
+    if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
+    {
+        joy_msg.buttons.data = button_data;
+        joy_msg.buttons.size = 0;
+        joy_msg.buttons.capacity = sizeof(button_data);
+        joy_msg.axes.data = axes_data;
+        joy_msg.axes.size = 0;
+        joy_msg.axes.capacity = sizeof(axes_data);
+
+        RCCHECK(rclc_executor_add_subscription(
+            &executor,
+            &joy_subscriber,
+            &joy_msg,
+            &joyCallback,
+            ON_NEW_DATA));
+    }
+
     RCCHECK(rclc_executor_add_timer(&executor, &control_timer));
     RCCHECK(rclc_executor_add_timer(&executor, &sensor_timer));
 
@@ -503,6 +609,10 @@ void destroyEntities()
     rcl_subscription_fini(&pid_ki_subscriber, &node);
 #endif
 
+    if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
+    {
+        rcl_subscription_fini(&joy_subscriber, &node);
+    }
     rcl_node_fini(&node);
 
     rcl_timer_fini(&control_timer);
@@ -534,11 +644,6 @@ bool is_moving()
            abs(motor2_encoder.getRPM()) > MIN_MOVING_RPM_THRESH;
 }
 
-float getSteeringPos()
-{
-    return steering.get_current_angle();
-}
-
 // For converting twist msg to Ackermann x vel and steering angle (for bicycle model, where
 // there is one wheel in the center of the front axle).
 //
@@ -557,33 +662,67 @@ float rot_and_linear_vel_to_steering_angle(float x_vel, float w_vel, float wheel
 
 void moveBase()
 {
-    // brake if there's no command received, or when it's only the first command sent
-    if(((millis() - prev_cmd_time) >= 200)) 
+    float speed_x = 0.0f;
+    float speed_y = 0.0f;
+    float speed_z = 0.0f;
+    float steering_angle = 0.0f;
+
+    if (ackermann_teleop)
     {
-        twist_msg.linear.x = 0.0f;
-        twist_msg.linear.y = 0.0f;
-        twist_msg.angular.z = 0.0f;
+        if (((millis() - prev_joy_cmd_time) > 200))
+        {
+            digitalWrite(LED_PIN, HIGH);
+        }
+        else
+        {
+            speed_x = speed_x_in;
+            steering_angle = steering_angle_in;
+        }
+    }
+    else
+    {
+        // Handle twist msg input (driven by the twist telop or a
+        // navigation controller)
 
-        digitalWrite(LED_PIN, HIGH);
+        // brake if there's no command received, or when it's only the first command sent
+        if(((millis() - prev_cmd_time) >= 200)) 
+        {
+            twist_msg.linear.x = 0.0f;
+            twist_msg.linear.y = 0.0f;
+            twist_msg.angular.z = 0.0f;
+
+            digitalWrite(LED_PIN, HIGH);
+        }
+
+        speed_x = twist_msg.linear.x;
+        speed_y = twist_msg.linear.y;
+        speed_z = twist_msg.angular.z;
+
+        // Calculate steering angle (bicycle car model) from x velocity, twist and wheelbase
+        // http://wiki.ros.org/teb_local_planner/Tutorials/Planning%20for%20car-like%20robots
+        // (Positive angle when moving forward turns left)
+        steering_angle = rot_and_linear_vel_to_steering_angle(twist_msg.linear.x, twist_msg.angular.z, FR_WHEELS_DISTANCE);
+        
+        // Limit to steerable range
+        steering_angle = steering_angle_to_lin_actuator_mapper.actuator_setting_to_angle_fast(
+                         steering_angle_to_lin_actuator_mapper.angle_to_actuator_setting_fast(steering_angle));
+
+        if (new_twist_msg) {
+            new_twist_msg = false;
+            Logger::log_message(Logger::LogLevel::Debug, "Steering angle %f, xve: %f, zvel: %f",
+                steering_angle*180.0/M_PI, twist_msg.linear.x, twist_msg.angular.z);
+        }
     }
 
-    // Calculate steering angle (bicycle car model) from x velocity, twist and wheelbase
-    // http://wiki.ros.org/teb_local_planner/Tutorials/Planning%20for%20car-like%20robots
-    // (Positive angle when moving forward turns left)
-    float steering_angle = rot_and_linear_vel_to_steering_angle(twist_msg.linear.x, twist_msg.angular.z, FR_WHEELS_DISTANCE);
-    
-    if (new_twist_msg) {
-        new_twist_msg = false;
-        Logger::log_message(Logger::LogLevel::Debug, "Steering angle %f, xve: %f, zvel: %f",
-            steering_angle*180.0/M_PI, twist_msg.linear.x, twist_msg.angular.z);
+    if (kinematics.getBasePlatform() == Kinematics::ACKERMANN) {
+        req_rpm = kinematics.getRPMAckermann(speed_x, steering_angle);
+    } else {        
+        // get the required rpm for each motor based on required velocities, and base used
+        req_rpm = kinematics.getRPM(
+            speed_x, 
+            speed_y, 
+            speed_z);
     }
-
-    // get the required rpm for each motor based on required velocities, and base used
-    req_rpm = kinematics.getRPM(
-        twist_msg.linear.x, 
-        twist_msg.linear.y, 
-        steering_angle
-    );
 
     // get the current speed of each motor
     current_rpm1 = motor1_speed_controller.get_rpm();
@@ -608,7 +747,7 @@ void moveBase()
     Kinematics::velocities current_vel;
     if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
     {
-        current_vel = kinematics.getVelocities(getSteeringPos(), current_rpm1, current_rpm2);
+        current_vel = kinematics.getVelocities(steering.get_current_angle(), current_rpm1, current_rpm2);
     }
     else
     {

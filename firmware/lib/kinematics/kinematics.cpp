@@ -112,20 +112,52 @@ Kinematics::rpm Kinematics::getRPM(float linear_x, float linear_y, float angular
     return calculateRPM(linear_x, linear_y, angular_z);
 }
 
+// See https://control.ros.org/rolling/doc/ros2_controllers/doc/mobile_robot_kinematics.html
+Kinematics::rpm Kinematics::getRPMAckermann(float linear_x, float steering_angle)
+{
+    Kinematics::rpm rpm;
+
+    if(abs(steering_angle) > 0.01f)
+    {
+        float radius = wheels_x_distance_/tan(steering_angle);
+        rpm.motor1 = linear_x*(radius - wheels_y_distance_/2.0f)/radius;
+        rpm.motor2 = linear_x*(radius + wheels_y_distance_/2.0f)/radius;
+    }
+    else
+    {
+        rpm.motor1 = linear_x;
+        rpm.motor2 = linear_x;
+    }
+    // Convert to rpm
+    rpm.motor1 *= 60.0f/wheel_circumference_;
+    rpm.motor2 *= 60.0f/wheel_circumference_;
+
+    return rpm;
+}
+
 Kinematics::velocities Kinematics::getVelocities(float steering_angle, int rpm1, int rpm2)
 {
     Kinematics::velocities vel;
-    float average_rps_x;
+    float rpm_x;
 
-    //convert average revolutions per minute to revolutions per second
-    average_rps_x = ((float)(rpm1 + rpm2) / total_wheels_) / 60; // RPM
-    vel.linear_x = average_rps_x * wheel_circumference_; // m/s
+    if(abs(steering_angle) > 0.01f)
+    {
+        double radius = wheels_x_distance_/tan(steering_angle);
+
+        rpm_x = (rpm1*radius/(radius - wheels_y_distance_/2.0) +
+                 rpm2*radius/(radius + wheels_y_distance_/2.0))/2.0;
+        vel.linear_x = rpm_x*wheel_circumference_/60.0f;
+        vel.angular_z = vel.linear_x / radius;
+    }
+    else
+    {
+        // (rpm1 + rpm2)/2 / 60 * wheel_circumference_
+        //  --- ave rev/sec ---
+        vel.linear_x = (rpm1 + rpm2)*wheel_circumference_/120.0f;
+        vel.angular_z = 0.0f;
+    }
 
     vel.linear_y = 0.0;
-
-    //http://wiki.ros.org/teb_local_planner/Tutorials/Planning%20for%20car-like%20robots
-    vel.angular_z =  (vel.linear_x * tan(steering_angle)) / wheels_x_distance_;
-
     return vel;
 }
 

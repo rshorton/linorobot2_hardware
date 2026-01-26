@@ -53,6 +53,8 @@ class Kinematics
                    float wheel_diameter, float wheels_x_distance, float wheels_y_distance);
         velocities getVelocities(float rpm1, float rpm2, float rpm3, float rpm4);
         velocities getVelocities(float steering_angle, int rpm1, int rpm2);
+        
+        rpm getRPMAckermann(float linear_x, float steering_angle);
         rpm getRPM(float linear_x, float linear_y, float angular_z);
         float getMaxRPM();
         enum base getBasePlatform() const { return base_platform_; }
