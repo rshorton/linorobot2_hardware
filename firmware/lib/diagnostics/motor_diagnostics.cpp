@@ -19,7 +19,6 @@
 MotorDiags::MotorDiags():
     inited_(false)
 {
-    //motor_diag_msg_.header.frame_id = micro_ros_string_utilities_set(motor_diag_msg_.header.frame_id, "none");
 }
 
 void MotorDiags::create(rcl_node_t &node, int index)
@@ -46,11 +45,13 @@ void MotorDiags::create(rcl_node_t &node, int index)
 
 void MotorDiags::destroy(rcl_node_t &node)
 {
+#if defined(PUBLISH_MOTOR_DIAGS)
     if (!inited_) {
         return;
     }
     inited_ = false;
     rcl_publisher_fini(&motor_diag_publisher_, &node);
+#endif    
 }
 
 void MotorDiags::publish(struct timespec time_stamp, float rpm_req, float rpm_cur, float current,

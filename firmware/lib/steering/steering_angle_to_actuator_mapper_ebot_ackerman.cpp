@@ -35,12 +35,14 @@ const double steering_arm_angle_neutral = M_PI*46.66/180.0;     // At steering a
 const double steering_act_slide_off_from_from_axle = 30.0; //20.0;      // ASO
 const double rw_king_pin_to_act_min_pos_mm = 135.0; //132.0;
 
-const double min_act_slide_pos_mm = 0.0; //8.0;
-const double max_act_slide_pos_mm = 43.0; //38.0; //42.0;
-const double act_mm_per_rev = 42.0/3.0;         // Measured: moved 42mm for 3 revs
+const double min_act_slide_pos_mm = 0.0;
+const double max_act_slide_pos_mm = 43.0;
+const double act_mm_per_rev = 28.0/2.0;             // Measured: moved 42mm for 3 revs
 
-const double steering_motor_gear_ratio = 70.0;
+const double steering_motor_gear_ratio = 30.0;
+
 const double steering_motor_enc_ticks_per_motor_shaft_rev = 64.0;
+
 const double steering_motor_enc_ticks_per_ext_shaft_rev = steering_motor_gear_ratio*steering_motor_enc_ticks_per_motor_shaft_rev;
 
 const double lu_table_max_abs_angle_deg = 40;

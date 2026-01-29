@@ -48,7 +48,7 @@ bool LinearActuator::home()
 
 bool LinearActuator::disable()
 {
-    motor_ctrl_.set_rpm(0);
+    motor_ctrl_.set_target_rpm(0);
     motor_ctrl_.update();
     if (homed_)
     {
@@ -73,7 +73,7 @@ bool LinearActuator::enable()
     return true;
 }
 
-int32_t LinearActuator::set_position(int32_t target_pos)
+int32_t LinearActuator::set_target_position(int32_t target_pos)
 {
     target_pos_ = target_pos;
     if (target_pos_ < 0)
@@ -115,7 +115,7 @@ long LinearActuator::homing_state_machine()
             last_homing_pos_ = 0;
             homing_stall_cnt_ = 0;
             homing_state_ = HomingState::kSearch;
-            motor_ctrl_.set_rpm(0);
+            motor_ctrl_.set_target_rpm(0);
             pid_.reset();
             encoder_.readAndReset();
             break;
@@ -155,7 +155,7 @@ long LinearActuator::homing_state_machine()
             }
             else
             {
-                motor_ctrl_.set_rpm(-homing_rpm_);
+                motor_ctrl_.set_target_rpm(-homing_rpm_);
                 motor_ctrl_.update();
     // fix check for stall or timeout        
             }            
@@ -203,7 +203,7 @@ long LinearActuator::control()
         pid_.reset();
     }
 
-    motor_ctrl_.set_rpm(new_rpm);
+    motor_ctrl_.set_target_rpm(new_rpm);
     motor_ctrl_.update();
 
 #ifdef DEBUG_PRINTS

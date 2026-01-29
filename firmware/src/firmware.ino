@@ -27,6 +27,7 @@
 #include <geometry_msgs/msg/twist.h>
 #include <geometry_msgs/msg/vector3.h>
 #include <std_msgs/msg/float32.h>
+#include <std_msgs/msg/int32.h>
 
 #include "config.h"
 #include "logger.h"
@@ -39,13 +40,13 @@
 #include "encoder.h"
 #include "encoder_single_phase.h"
 #include "motor_diagnostics.h"
+#include "servo_diagnostics.h"
 #include "util.h"
 
 #include "motor_speed_controller.h"
 #include "linear_actuator.h"
 #include "steering_using_linear_actuator.h"
 #include "steering_angle_to_actuator_mapper_ebot_ackerman.h"
-
 
 #define TUNE_PID_LOOP               // Allow tweaking of PID parameters via topic write
 
@@ -85,10 +86,12 @@ rcl_subscription_t joy_subscriber;
 rcl_subscription_t pid_kp_subscriber;
 rcl_subscription_t pid_kd_subscriber;
 rcl_subscription_t pid_ki_subscriber;
+rcl_subscription_t pid_type_subscriber;
 
 std_msgs__msg__Float32 pid_kp_msg;
 std_msgs__msg__Float32 pid_kd_msg;
 std_msgs__msg__Float32 pid_ki_msg;
+std_msgs__msg__Int32 pid_type_msg;
 #endif
 
 nav_msgs__msg__Odometry odom_msg;
@@ -113,6 +116,9 @@ unsigned long prev_odom_update = 0;
 unsigned long prev_joy_cmd_time = 0;
 bool new_twist_msg = false;
 bool micro_ros_init_successful = false;
+
+enum class tune_pid_type_t { WheelMotors, SteeringAct, SteeringMotor };
+tune_pid_type_t tune_pid_type = tune_pid_type_t::WheelMotors;
 
 const float MIN_MOVING_RPM_THRESH = 1.0f;
 
@@ -178,13 +184,13 @@ EncoderQuadrature str_motor_enc(STEERMTR_ENCODER_A, STEERMTR_ENCODER_B, STR_MOTO
 EncoderNull str_wheel_enc;
 
 // Motor speed controller
-PID motor_spd_pid(STR_SPD_PWM_MIN, STR_SPD_PWM_MAX, STR_SPD_PID_P, STR_SPD_PID_I, STR_SPD_PID_D);
-MotorSpeedController motor_speed_controller(motor_str_controller, str_motor_enc, motor_spd_pid);
+PID str_motor_spd_pid(STR_SPD_PWM_MIN, STR_SPD_PWM_MAX, STR_SPD_PID_P, STR_SPD_PID_I, STR_SPD_PID_D);
+MotorSpeedController str_motor_speed_controller(motor_str_controller, str_motor_enc, str_motor_spd_pid);
 
 
 PID str_act_pid(STR_ACT_RPM_MIN, STR_ACT_RPM_MAX, STR_ACT_PID_P, STR_ACT_PID_I, STR_ACT_PID_D);
 LinearActuator steering_actuator(LinearActuator::HomeDetection::kSwitch, STR_LEFT_LIMIT_IN,
-                                 motor_speed_controller, str_motor_enc, str_act_pid, 70,
+                                 str_motor_speed_controller, str_motor_enc, str_act_pid, STR_ACT_HOMING_RPM,
                                   STR_ACT_MAX_POS, STR_ACT_POS_THRESH);
 
 SteeringAngleToActuatorMapperEbotAckerman steering_angle_to_lin_actuator_mapper;
@@ -215,6 +221,9 @@ MotorDiags motor2_diags;
 MotorDiags motor3_diags;
 MotorDiags motor4_diags;
 #endif
+
+MotorDiags steering_motor_diags;
+ServoDiags steering_servo_diags;
 
 bool estopAsserted()
 {
@@ -334,32 +343,80 @@ void twistCallback(const void *msgin)
 #if defined(TUNE_PID_LOOP)
 void pidKpCallback(const void * msgin) 
 {
-    motor1_pid.updateKp(pid_kp_msg.data);
-    motor2_pid.updateKp(pid_kp_msg.data);
+    Logger::log_message(Logger::LogLevel::Info, "Tune Pid set Kp: %f, type: %d", 
+                        pid_kp_msg.data, tune_pid_type);
+
+    if (tune_pid_type == tune_pid_type_t::WheelMotors)
+    {
+        motor1_pid.updateKp(pid_kp_msg.data);
+        motor2_pid.updateKp(pid_kp_msg.data);
 #if NUM_BASE_MOTORS == 4
-    motor3_pid.updateKp(pid_kp_msg.data);
-    motor4_pid.updateKp(pid_kp_msg.data);
+        motor3_pid.updateKp(pid_kp_msg.data);
+        motor4_pid.updateKp(pid_kp_msg.data);
 #endif
+    }
+    else if (tune_pid_type == tune_pid_type_t::SteeringAct)
+    {
+        str_act_pid.updateKp(pid_kp_msg.data);
+    }
+    else if (tune_pid_type == tune_pid_type_t::SteeringMotor)
+    {
+        str_motor_spd_pid.updateKp(pid_kp_msg.data);
+    }
 }
 
 void pidKdCallback(const void * msgin)
 {
-    motor1_pid.updateKd(pid_kd_msg.data);
-    motor2_pid.updateKd(pid_kd_msg.data);
+    Logger::log_message(Logger::LogLevel::Info, "Tune Pid set Kd: %f, type: %d",
+                        pid_kd_msg.data,  tune_pid_type);
+
+    if (tune_pid_type == tune_pid_type_t::WheelMotors)
+    {
+        motor1_pid.updateKd(pid_kd_msg.data);
+        motor2_pid.updateKd(pid_kd_msg.data);
 #if NUM_BASE_MOTORS == 4
-    motor3_pid.updateKd(pid_kd_msg.data);
-    motor4_pid.updateKd(pid_kd_msg.data);
+        motor3_pid.updateKd(pid_kd_msg.data);
+        motor4_pid.updateKd(pid_kd_msg.data);
 #endif
+    }
+    else if (tune_pid_type == tune_pid_type_t::SteeringAct)
+    {
+        str_act_pid.updateKd(pid_kd_msg.data);
+    }
+    else if (tune_pid_type == tune_pid_type_t::SteeringMotor)
+    {
+        str_motor_spd_pid.updateKd(pid_kd_msg.data);
+    }
 }
 
 void pidKiCallback(const void * msgin)
 {
-    motor1_pid.updateKi(pid_ki_msg.data);
-    motor2_pid.updateKi(pid_ki_msg.data);
+    Logger::log_message(Logger::LogLevel::Info, "Tune Pid set Ki: %f, type: %d", 
+                        pid_ki_msg.data, tune_pid_type);
+
+    if (tune_pid_type == tune_pid_type_t::WheelMotors)
+    {
+        motor1_pid.updateKi(pid_ki_msg.data);
+        motor2_pid.updateKi(pid_ki_msg.data);
 #if NUM_BASE_MOTORS == 4
-    motor3_pid.updateKi(pid_ki_msg.data);
-    motor4_pid.updateKi(pid_ki_msg.data);
+        motor3_pid.updateKi(pid_ki_msg.data);
+        motor4_pid.updateKi(pid_ki_msg.data);
 #endif
+    }
+    else if (tune_pid_type == tune_pid_type_t::SteeringAct)
+    {
+        str_act_pid.updateKi(pid_ki_msg.data);
+    }
+    else if (tune_pid_type == tune_pid_type_t::SteeringMotor)
+    {
+        str_motor_spd_pid.updateKi(pid_ki_msg.data);
+    }
+}
+
+void pidTypeCallback(const void * msgin)
+{
+    tune_pid_type = static_cast<tune_pid_type_t>(pid_type_msg.data);
+    Logger::log_message(Logger::LogLevel::Info, "Tune Pid set type: %d", tune_pid_type);
 }
 #endif
 
@@ -469,7 +526,12 @@ void createEntities()
 #if NUM_BASE_MOTORS == 4
     motor3_diags.create(node, 3);
     motor4_diags.create(node, 4);
-#endif    
+#endif
+    steering_motor_diags.create(node, 5);
+#endif
+
+#if defined(PUBLISH_SERVO_DIAGS)
+    steering_servo_diags.create(node, "steering");
 #endif
 
 #if defined(TUNE_PID_LOOP)
@@ -477,18 +539,24 @@ void createEntities()
         &pid_kp_subscriber,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
-        "pid_kp"));
+        "tune_pid_kp"));
     RCCHECK(rclc_subscription_init_default(
         &pid_kd_subscriber,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
-        "pid_kd"));
+        "tune_pid_kd"));
 
     RCCHECK(rclc_subscription_init_default(
         &pid_ki_subscriber,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
-        "pid_ki"));
+        "tune_pid_ki"));
+
+    RCCHECK(rclc_subscription_init_default(
+        &pid_type_subscriber,
+        &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32),
+        "tune_pid_type"));
 #endif
 
     if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
@@ -514,8 +582,8 @@ void createEntities()
         RCL_MS_TO_NS(control_timeout),
         controlCallback));
 
-    // create timer for reading and publishing sensor data 10 Hz
-    const unsigned int sensor_timeout = 100;
+    // create timer for reading and publishing sensor data 20 Hz
+    const unsigned int sensor_timeout = 50;
     RCCHECK(rclc_timer_init_default(
         &sensor_timer,
         &support,
@@ -527,7 +595,7 @@ void createEntities()
     // WATCHOUT - Update the number of handles if more subscriptions/timers added.
     // Also make sure the micro_ros.meta specifies enough allocations for subs and pubs.
     // If this is too small, you should see the ERR_BLINK_GENERAL blink pattern.
-    const int num_handles = 5 /* subscriptions */ + 2 /* timers */;
+    const int num_handles = 6 /* subscriptions */ + 2 /* timers */;
     RCCHECK(rclc_executor_init(&executor, &support.context, num_handles, & allocator));
     RCCHECK(rclc_executor_add_subscription(
         &executor,
@@ -554,6 +622,12 @@ void createEntities()
         &pid_ki_subscriber,
         &pid_ki_msg,
         &pidKiCallback,
+        ON_NEW_DATA));
+    RCCHECK(rclc_executor_add_subscription(
+        &executor,
+        &pid_type_subscriber,
+        &pid_type_msg,
+        &pidTypeCallback,
         ON_NEW_DATA));
 #endif
 
@@ -595,7 +669,12 @@ void destroyEntities()
 #if NUM_BASE_MOTORS == 4
     motor3_diags.destroy(node);
     motor4_diags.destroy(node);
-#endif    
+#endif
+    steering_motor_diags.destroy(node);
+#endif
+
+#if defined(PUBLISH_SERVO_DIAGS)
+    steering_servo_diags.destroy(node);
 #endif
 
     rcl_publisher_fini(&odom_publisher, &node);
@@ -607,6 +686,7 @@ void destroyEntities()
     rcl_subscription_fini(&pid_kp_subscriber, &node);
     rcl_subscription_fini(&pid_kd_subscriber, &node);
     rcl_subscription_fini(&pid_ki_subscriber, &node);
+    rcl_subscription_fini(&pid_type_subscriber, &node);
 #endif
 
     if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
@@ -725,18 +805,18 @@ void moveBase()
     }
 
     // get the current speed of each motor
-    current_rpm1 = motor1_speed_controller.get_rpm();
-    current_rpm2 = motor2_speed_controller.get_rpm();
+    current_rpm1 = motor1_speed_controller.get_current_rpm();
+    current_rpm2 = motor2_speed_controller.get_current_rpm();
 #if NUM_BASE_MOTORS == 4
-    current_rpm3 = motor3_speed_controller.get_rpm();
-    current_rpm4 = motor4_speed_controller.get_rpm();
+    current_rpm3 = motor3_speed_controller.get_current_rpm();
+    current_rpm4 = motor4_speed_controller.get_current_rpm();
 #endif
 
-    motor1_speed_controller.set_rpm(req_rpm.motor1);
-    motor2_speed_controller.set_rpm(req_rpm.motor2);
+    motor1_speed_controller.set_target_rpm(req_rpm.motor1);
+    motor2_speed_controller.set_target_rpm(req_rpm.motor2);
 #if NUM_BASE_MOTORS == 4
-    motor3_speed_controller.set_rpm(req_rpm.motor3);
-    motor4_speed_controller.set_rpm(req_rpm.motor4);
+    motor3_speed_controller.set_target_rpm(req_rpm.motor3);
+    motor4_speed_controller.set_target_rpm(req_rpm.motor4);
 #endif    
 
     if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
@@ -810,7 +890,14 @@ void publishData()
 #if NUM_BASE_MOTORS == 4
     motor3_diags.publish(time_stamp, req_rpm.motor3, current_rpm3, motor3_controller.getCurrent(), motor3_pid, motor3_encoder);
     motor4_diags.publish(time_stamp, req_rpm.motor4, current_rpm4, motor4_controller.getCurrent(), motor4_pid, motor4_encoder);
-#endif    
+#endif
+
+    steering_motor_diags.publish(time_stamp, str_motor_speed_controller.get_target_rpm(), str_motor_speed_controller.get_current_rpm(), 0.0f,
+                                 str_motor_speed_controller.get_pid(), str_motor_speed_controller.get_encoder());    
+#endif
+#if defined(PUBLISH_SERVO_DIAGS)
+    steering_servo_diags.publish(time_stamp, steering_actuator.get_target_position(), steering_actuator.get_current_position(),
+                                 steering_actuator.get_pid(), steering_actuator.get_encoder());
 #endif
 }
 

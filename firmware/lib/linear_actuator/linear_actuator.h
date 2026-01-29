@@ -50,10 +50,20 @@ public:
     bool disable();
     bool enable();
 
-    int32_t get_position() const { return target_pos_; }
-    int32_t set_position(int32_t target_pos);
+    int32_t set_target_position(int32_t target_pos);
+    int32_t get_target_position() const {
+        return target_pos_;
+    }
 
     int32_t get_current_position() const;
+
+    PID &get_pid() const {
+        return pid_;
+    }
+    
+    EncoderInterface &get_encoder() const {
+        return encoder_;
+    }
 
     unsigned long update();
 

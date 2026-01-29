@@ -86,12 +86,12 @@ EncoderNull str_wheel_enc;
 
 // Motor speed controller
 PID motor_spd_pid(STR_SPD_PWM_MIN, STR_SPD_PWM_MAX, STR_SPD_PID_P, STR_SPD_PID_I, STR_SPD_PID_D);
-MotorSpeedController motor_speed_controller(motor_str_controller, str_motor_enc, motor_spd_pid);
+MotorSpeedController str_motor_speed_controller(motor_str_controller, str_motor_enc, motor_spd_pid);
 
 // Steering actuator
 PID str_act_pid(STR_ACT_RPM_MIN, STR_ACT_RPM_MAX, STR_ACT_PID_P, STR_ACT_PID_I, STR_ACT_PID_D);
 LinearActuator steering_actuator(LinearActuator::HomeDetection::kSwitch, STR_LEFT_LIMIT_IN,
-                                 motor_speed_controller, str_motor_enc, str_act_pid, 70,
+                                 str_motor_speed_controller, str_motor_enc, str_act_pid, STR_ACT_HOMING_RPM,
                                   STR_ACT_MAX_POS, STR_ACT_POS_THRESH);
 
 SteeringAngleToActuatorMapperEbotAckerman steering_angle_to_lin_actuator_mapper;
@@ -578,7 +578,7 @@ void motorSpeedControlTest(MotorSpeedController &controller1, MotorSpeedControll
     struct Controllers {
         Controllers(MotorSpeedController &controller):
              controller(controller) {
-                controller.set_rpm(0);
+                controller.set_target_rpm(0);
              }
         int rpm{0};
         MotorSpeedController &controller;
@@ -620,7 +620,7 @@ void motorSpeedControlTest(MotorSpeedController &controller1, MotorSpeedControll
                         new_rpm++;
                     } else {
                         new_rpm += 10;
-                    }                        
+                    }
                     break;
                 }
                 case '-':
@@ -681,7 +681,7 @@ void motorSpeedControlTest(MotorSpeedController &controller1, MotorSpeedControll
 
         if (new_rpm != sel_controller.rpm) {
             sel_controller.rpm = new_rpm;
-            sel_controller.controller.set_rpm(new_rpm);
+            sel_controller.controller.set_target_rpm(new_rpm);
         }
 
         bool log = false;
@@ -702,7 +702,7 @@ void motorSpeedControlTest(MotorSpeedController &controller1, MotorSpeedControll
                 Serial.print("  target RPM: ");
                 Serial.print(controllers[i].rpm);
                 Serial.print("  actual RPM: ");
-                Serial.print(controllers[i].controller.get_rpm());
+                Serial.print(controllers[i].controller.get_current_rpm());
                 Serial.print("   |   ");
             }
         }
@@ -787,12 +787,12 @@ void steeringActuatorTest(LinearActuator &actuator, int max_pos, EncoderInterfac
                     Serial.print("STR ACT TEST: New target position: ");
                     Serial.print(new_target_pos);
                     Serial.println("\r\n");
-                    actuator.set_position(new_target_pos);
+                    actuator.set_target_position(new_target_pos);
                 } else if (new_target_angle != invalid_angle) {
                     Serial.print("STR ACT TEST: New target angle: ");
                     Serial.print(new_target_angle);
                     Serial.println("\r\n");
-                    actuator.set_position(new_target_angle);
+                    actuator.set_target_position(new_target_angle);
                 }
             }
 

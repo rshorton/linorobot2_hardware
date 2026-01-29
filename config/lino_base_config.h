@@ -15,9 +15,10 @@
 #ifndef LINO_BASE_CONFIG_H
 #define LINO_BASE_CONFIG_H
 
-// Define to enable motor diag support for publishing
-// motor status for plotting
-#define PUBLISH_MOTOR_DIAGS
+// Define to enable motor/servo diag support for publishing motor status for plotting
+// Undef these when not needed to avoid delaying the publishers of more timely topics (odom, imu)
+#undef PUBLISH_MOTOR_DIAGS
+#undef PUBLISH_SERVO_DIAGS
 
 #define LED_PIN 13 //used for debugging status
 
@@ -67,8 +68,8 @@ ROBOT ORIENTATION
 #define COUNTS_PER_REV3 120                 // wheel3 encoder's no of ticks per rev
 #define COUNTS_PER_REV4 120                 // wheel4 encoder's no of ticks per rev
 
-#define WHEEL_DIAMETER      0.16            // wheel's diameter in meters
-#define FR_WHEELS_DISTANCE  0.366           // distance between front and back wheels
+#define WHEEL_DIAMETER      0.155           // wheel's diameter in meters
+#define FR_WHEELS_DISTANCE  0.368           // distance between front and back wheels
 #define LR_WHEELS_DISTANCE  0.436           // distance between left and right wheels
 
 #define PWM_BITS 10                         // PWM Resolution of the microcontroller
@@ -80,7 +81,7 @@ ROBOT ORIENTATION
 #define MOTOR3_ENCODER_INV true 
 #define MOTOR4_ENCODER_INV false
 
-#define MOTOR_STR_ENCODER_INV false
+#define MOTOR_STR_ENCODER_INV true
 
 // INVERT MOTOR DIRECTIONS
 #define MOTOR1_INV true
@@ -178,28 +179,31 @@ ROBOT ORIENTATION
 
 // Steering actuator
 
-#define STR_ACT_RPM_MIN -110                 // Min/max RPM when controlling the motor
-#define STR_ACT_RPM_MAX 110 
+#define STR_MOTOR_ENC_TICKS_PER_REV (64*30) // Encoder ticks per one rev of output shaft (64 ticks per motor rev, 70:1 gear ratio)
 
-#define STR_ACT_PID_P   0.03f               // Actuator PID values 
-#define STR_ACT_PID_I   0.0005f
-#define STR_ACT_PID_D   0.3f
+#define STR_ACT_HOMING_RPM 70               // RPM when finding home
+
+#define STR_ACT_RPM_MIN -210                // Min/max RPM when controlling the motor
+#define STR_ACT_RPM_MAX 210 
+
+#define STR_ACT_PID_P   0.2f               // Actuator PID values 
+#define STR_ACT_PID_I   0.01f
+#define STR_ACT_PID_D   0.1f
 
 #define STR_ACT_MAX_POS 13760               // Max position of the actuator in encoder units.
-#define STR_ACT_POS_THRESH -1
+                                            // Deadband +/- range
+#define STR_ACT_POS_THRESH (STR_MOTOR_ENC_TICKS_PER_REV*2/100)
 
 #define STR_LEFT_LIMIT_IN  39               // Active low steering limit sw used when homing the actuator
 
 // Steering motor speed controller
 
-#define STR_SPD_PWM_MIN -1000               // Min max PWM output values when controlling the motor    
-#define STR_SPD_PWM_MAX 1000
+#define STR_SPD_PWM_MIN PWM_MIN             // Min max PWM output values when controlling the motor    
+#define STR_SPD_PWM_MAX PWM_MAX
 
-#define STR_SPD_PID_P   2.0f                // Motor speed controller PID values 
-#define STR_SPD_PID_I   1.0f
-#define STR_SPD_PID_D   0.0f
-
-#define STR_MOTOR_ENC_TICKS_PER_REV (64*70) // Encoder ticks per one rev of output shaft (64 ticks per motor rev, 70:1 gear ratio)
+#define STR_SPD_PID_P   1.0f                // Motor speed controller PID values 
+#define STR_SPD_PID_I   0.2f
+#define STR_SPD_PID_D   0.1f
 
 // Motor power relay control related
 

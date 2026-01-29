@@ -55,7 +55,7 @@ float SteeringUsingLinearActuator::set_angle(float angle_sp_rad)
     {
         angle_sp_ = angle_sp_rad;
         actuator_sp_ = angle_mapper_.angle_to_actuator_setting_fast(angle_sp_);
-        actuator_.set_position(actuator_sp_);
+        actuator_.set_target_position(actuator_sp_);
     }
     return angle_sp_;
 }
@@ -93,7 +93,7 @@ void SteeringUsingLinearActuator::update()
             {
                 state_ = State::kControl;
                 // Set to current setpoint
-                actuator_.set_position(actuator_sp_);
+                actuator_.set_target_position(actuator_sp_);
             }
             else if (state == LinearActuator::State::kHomingFailure)
             {

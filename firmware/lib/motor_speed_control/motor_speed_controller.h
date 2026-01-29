@@ -13,13 +13,26 @@ public:
                          EncoderInterface &encoder,
                          PID &pid);
 
-    void set_rpm(float rpm);
-    float get_rpm() const;    
+    void set_target_rpm(float rpm) {
+        target_rpm_ = rpm;
+    }
+    float get_target_rpm() const {
+        return target_rpm_;
+    }
+
+    float get_current_rpm() const {
+        return current_rpm_;
+    }
+
     void stop();
     void update();
 
     PID &get_pid() const {
         return pid_;
+    }
+
+    EncoderInterface &get_encoder() const {
+        return encoder_;
     }
 
     bool is_changing_dir() const

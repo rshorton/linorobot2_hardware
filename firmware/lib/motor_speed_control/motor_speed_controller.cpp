@@ -21,16 +21,6 @@ MotorSpeedController::MotorSpeedController(Motor &motor, EncoderInterface &encod
 {
 }
 
-void MotorSpeedController::set_rpm(float rpm)
-{
-    target_rpm_ = rpm;
-}
-
-float MotorSpeedController::get_rpm() const
-{
-    return current_rpm_;
-}
-
 void MotorSpeedController::stop()
 {
     target_rpm_= 0;
