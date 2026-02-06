@@ -30,7 +30,7 @@ void ServoDiags::create(rcl_node_t &node, const String &name)
 
     name_ = name;
 
-    String topic_base = String("servo_" + name_);
+    String topic_base = String("ebot/servo_" + name_);
 
     rclc_publisher_init_default( 
         &servo_diag_publisher_, 

@@ -31,7 +31,7 @@ void MotorDiags::create(rcl_node_t &node, int index)
     index_ = index;
 
     String idx_str = String(index);
-    String topic_base = String("motor_" + idx_str);
+    String topic_base = String("ebot/motor_" + idx_str);
 
     rclc_publisher_init_default( 
         &motor_diag_publisher_, 

@@ -109,6 +109,7 @@ rcl_allocator_t allocator;
 rcl_node_t node;
 rcl_timer_t control_timer;
 rcl_timer_t sensor_timer;
+rcl_timer_t sync_time_timer;
 
 unsigned long long time_offset = 0;
 unsigned long prev_cmd_time = 0;
@@ -324,6 +325,15 @@ void controlCallback(rcl_timer_t *timer, int64_t last_call_time)
     }
 }
 
+void syncTimeCallback(rcl_timer_t * timer, int64_t last_call_time) 
+{
+    RCLC_UNUSED(last_call_time);
+    if (timer != NULL) 
+    {
+        syncTime();
+    }
+}
+
 void sensorCallback(rcl_timer_t * timer, int64_t last_call_time) 
 {
     RCLC_UNUSED(last_call_time);
@@ -469,6 +479,7 @@ void syncTime()
     unsigned long long ros_time_ms = rmw_uros_epoch_millis();
     // now we can find the difference between ROS time and uC time
     time_offset = ros_time_ms - now;
+    Logger::log_message(Logger::LogLevel::Info, "Local time diff: %ld", time_offset);
 }
 
 struct timespec getTime()
@@ -501,21 +512,21 @@ void createEntities()
         &odom_publisher, 
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(nav_msgs, msg, Odometry),
-        "odom/unfiltered"));
+        "ebot/odom"));
 
     // create IMU publisher
     RCCHECK(rclc_publisher_init_default( 
         &imu_publisher, 
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
-        "imu/data"));
+        "ebot/imu/data"));
 
     // create IMU Magnetic Field publisher
     RCCHECK(rclc_publisher_init_default( 
         &imu_mag_field_publisher, 
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, MagneticField),
-        "imu/mag"));
+        "ebot/imu/mag"));
 
     Logger::create_logger(node, log_time_provider);          
 
@@ -590,12 +601,20 @@ void createEntities()
         RCL_MS_TO_NS(sensor_timeout),
         sensorCallback));
 
+    // create timer for periodically syncing the local time with the main CPU
+    const unsigned int sync_time_timeout = 5000;
+    RCCHECK(rclc_timer_init_default(
+        &sync_time_timer,
+        &support,
+        RCL_MS_TO_NS(sync_time_timeout),
+        syncTimeCallback));
+
     executor = rclc_executor_get_zero_initialized_executor();
 
     // WATCHOUT - Update the number of handles if more subscriptions/timers added.
     // Also make sure the micro_ros.meta specifies enough allocations for subs and pubs.
     // If this is too small, you should see the ERR_BLINK_GENERAL blink pattern.
-    const int num_handles = 6 /* subscriptions */ + 2 /* timers */;
+    const int num_handles = 6 /* subscriptions */ + 3 /* timers */;
     RCCHECK(rclc_executor_init(&executor, &support.context, num_handles, & allocator));
     RCCHECK(rclc_executor_add_subscription(
         &executor,
@@ -650,6 +669,7 @@ void createEntities()
 
     RCCHECK(rclc_executor_add_timer(&executor, &control_timer));
     RCCHECK(rclc_executor_add_timer(&executor, &sensor_timer));
+    RCCHECK(rclc_executor_add_timer(&executor, &sync_time_timer));
 
     // synchronize time with the agent
     syncTime();
@@ -697,6 +717,7 @@ void destroyEntities()
 
     rcl_timer_fini(&control_timer);
     rcl_timer_fini(&sensor_timer);
+    rcl_timer_fini(&sync_time_timer);
     rclc_executor_fini(&executor);
     rclc_support_fini(&support);
 
