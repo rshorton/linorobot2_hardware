@@ -217,4 +217,12 @@ ROBOT ORIENTATION
 
 #define ESTOP_IN           MOTOR_RELAY_PWR_IN  // Active low (emergency stop button pressed or RF switch is off)
 
+                                    // Ultrasonic Obstacle sensors
+                                    // HCSR04 trigger outputs:
+#define HCSR04_TRIG_FRONT_OUT   33  //  front left
+#define HCSR04_TRIG_BACK_OUT    37  //  back
+                                    // HCSR04 echo inputs:
+#define HCSR04_ECHO_FRONT_IN    36  //  front
+#define HCSR04_ECHO_BACK_IN     38  //  back
+
 #endif

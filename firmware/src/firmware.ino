@@ -28,6 +28,7 @@
 #include <geometry_msgs/msg/vector3.h>
 #include <std_msgs/msg/float32.h>
 #include <std_msgs/msg/int32.h>
+#include <std_msgs/msg/bool.h>
 
 #include "config.h"
 #include "logger.h"
@@ -47,6 +48,11 @@
 #include "linear_actuator.h"
 #include "steering_using_linear_actuator.h"
 #include "steering_angle_to_actuator_mapper_ebot_ackerman.h"
+
+#include "hc_sr04.h"
+#include "serial_bus_servo.h"
+#include "ros_range_sensor.h"
+#include "ros_rot_range_sensor.h"
 
 #define TUNE_PID_LOOP               // Allow tweaking of PID parameters via topic write
 
@@ -87,12 +93,15 @@ rcl_subscription_t pid_kp_subscriber;
 rcl_subscription_t pid_kd_subscriber;
 rcl_subscription_t pid_ki_subscriber;
 rcl_subscription_t pid_type_subscriber;
+rcl_subscription_t range_scan_enable_subscriber;
 
 std_msgs__msg__Float32 pid_kp_msg;
 std_msgs__msg__Float32 pid_kd_msg;
 std_msgs__msg__Float32 pid_ki_msg;
 std_msgs__msg__Int32 pid_type_msg;
 #endif
+
+std_msgs__msg__Bool range_scan_enable_msg;
 
 nav_msgs__msg__Odometry odom_msg;
 sensor_msgs__msg__Imu imu_msg;
@@ -109,6 +118,7 @@ rcl_allocator_t allocator;
 rcl_node_t node;
 rcl_timer_t control_timer;
 rcl_timer_t sensor_timer;
+rcl_timer_t dist_sensor_timer;
 rcl_timer_t sync_time_timer;
 
 unsigned long long time_offset = 0;
@@ -134,6 +144,28 @@ float steering_angle_in = 0.0;
 
 Kinematics::rpm req_rpm;
 Kinematics::rpm last_rpm = {0.0f, 0.0f, 0.0f, 0.0f};
+
+// Range sensors
+
+const int DIST_SENSOR_UPDATE_PERIOD_MS = 100;
+HCSR04 dist_sensor_front(0, HCSR04_TRIG_FRONT_OUT, HCSR04_ECHO_FRONT_IN, 6);
+HCSR04 dist_sensor_back(1, HCSR04_TRIG_BACK_OUT, HCSR04_ECHO_BACK_IN, 6);
+
+RosRangeSensor range_sensor_front(dist_sensor_front, "hcsr04_front", "ebot/range/front");
+RosRangeSensor range_sensor_back(dist_sensor_back, "hcsr04_back", "ebot/range/back");
+
+SerialServo range_servo_front(Serial8, 1, 240, 1000, true);
+SerialServo range_servo_back(Serial8, 2, 240, 1000, true);
+
+const float front_ranging_angles[] = {30.0f, 0.0f, -30.0f, 0.0f};
+const float back_ranging_angles[] = {30.0f, 0.0f, -30.0f, 0.0f};
+RosRotatingRangeSensor front_rotating_range_sensor("hcsr04_pan_joint_front", range_sensor_front, range_servo_front, front_ranging_angles,
+                                                   sizeof(front_ranging_angles)/sizeof(float), 120.0f, 500);
+RosRotatingRangeSensor back_rotating_range_sensor("hcsr04_pan_joint_back", range_sensor_back, range_servo_back, back_ranging_angles,
+                                                   sizeof(back_ranging_angles)/sizeof(float), 120.0f, 500);
+
+//RosRangeSensor range_sensor_front(dist_sensor_front, "hcsr04_front", "ebot/range/front");
+//RosRangeSensor range_sensor_back(dist_sensor_back, "hcsr04_back", "ebot/range/front");
 
 //////////////////////////////////
 // Wheel related
@@ -269,7 +301,14 @@ extern "C" void loop()
             if (!micro_ros_init_successful)
             {
                 createEntities();
-                Logger::log_message(Logger::LogLevel::Error, "Micro ROS initialized");
+                Logger::log_message(Logger::LogLevel::Info, "Micro ROS initialized");
+
+                
+                front_rotating_range_sensor.init(node);
+                front_rotating_range_sensor.start(true);
+
+                back_rotating_range_sensor.init(node);
+                back_rotating_range_sensor.start(true);
             }
         }
         else if (micro_ros_init_successful)
@@ -340,6 +379,16 @@ void sensorCallback(rcl_timer_t * timer, int64_t last_call_time)
     if (timer != NULL) 
     {
        publishSensorData();
+    }
+}
+
+void distSensorCallback(rcl_timer_t *timer, int64_t last_call_time)
+{
+    RCLC_UNUSED(last_call_time);
+    if (timer != NULL)
+    {
+        front_rotating_range_sensor.update();
+        back_rotating_range_sensor.update();
     }
 }
 
@@ -429,6 +478,13 @@ void pidTypeCallback(const void * msgin)
     Logger::log_message(Logger::LogLevel::Info, "Tune Pid set type: %d", tune_pid_type);
 }
 #endif
+
+void rangeScanEnableCallback(const void * msgin)
+{
+    auto scan = range_scan_enable_msg.data;
+    front_rotating_range_sensor.start(scan);
+    back_rotating_range_sensor.start(scan);
+}
 
 void setSpeedScale(float scale)
 {
@@ -550,25 +606,32 @@ void createEntities()
         &pid_kp_subscriber,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
-        "tune_pid_kp"));
+        "ebot/tune_pid_kp"));
     RCCHECK(rclc_subscription_init_default(
         &pid_kd_subscriber,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
-        "tune_pid_kd"));
+        "ebot/tune_pid_kd"));
 
     RCCHECK(rclc_subscription_init_default(
         &pid_ki_subscriber,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
-        "tune_pid_ki"));
+        "ebot/tune_pid_ki"));
 
     RCCHECK(rclc_subscription_init_default(
         &pid_type_subscriber,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32),
-        "tune_pid_type"));
+        "ebot/tune_pid_type"));
 #endif
+
+    RCCHECK(rclc_subscription_init_default(
+        &range_scan_enable_subscriber,
+        &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
+        "ebot/range_scan_enable"));
+
 
     if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
     {
@@ -601,6 +664,14 @@ void createEntities()
         RCL_MS_TO_NS(sensor_timeout),
         sensorCallback));
 
+    // create timer for updating distance measurements
+    const unsigned int dist_sensor_timeout = DIST_SENSOR_UPDATE_PERIOD_MS;
+    RCCHECK(rclc_timer_init_default(
+        &dist_sensor_timer,
+        &support,
+        RCL_MS_TO_NS(dist_sensor_timeout),
+        distSensorCallback));
+
     // create timer for periodically syncing the local time with the main CPU
     const unsigned int sync_time_timeout = 5000;
     RCCHECK(rclc_timer_init_default(
@@ -614,7 +685,7 @@ void createEntities()
     // WATCHOUT - Update the number of handles if more subscriptions/timers added.
     // Also make sure the micro_ros.meta specifies enough allocations for subs and pubs.
     // If this is too small, you should see the ERR_BLINK_GENERAL blink pattern.
-    const int num_handles = 6 /* subscriptions */ + 3 /* timers */;
+    const int num_handles = 7 /* subscriptions */ + 4 /* timers */;
     RCCHECK(rclc_executor_init(&executor, &support.context, num_handles, & allocator));
     RCCHECK(rclc_executor_add_subscription(
         &executor,
@@ -650,6 +721,13 @@ void createEntities()
         ON_NEW_DATA));
 #endif
 
+    RCCHECK(rclc_executor_add_subscription(
+        &executor,
+        &range_scan_enable_subscriber,
+        &range_scan_enable_msg,
+        &rangeScanEnableCallback,
+        ON_NEW_DATA));
+
     if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
     {
         joy_msg.buttons.data = button_data;
@@ -669,6 +747,7 @@ void createEntities()
 
     RCCHECK(rclc_executor_add_timer(&executor, &control_timer));
     RCCHECK(rclc_executor_add_timer(&executor, &sensor_timer));
+    RCCHECK(rclc_executor_add_timer(&executor, &dist_sensor_timer));
     RCCHECK(rclc_executor_add_timer(&executor, &sync_time_timer));
 
     // synchronize time with the agent
@@ -697,6 +776,9 @@ void destroyEntities()
     steering_servo_diags.destroy(node);
 #endif
 
+    front_rotating_range_sensor.destroy(node);
+    back_rotating_range_sensor.destroy(node);
+
     rcl_publisher_fini(&odom_publisher, &node);
     rcl_publisher_fini(&imu_publisher, &node);
     rcl_publisher_fini(&imu_mag_field_publisher, &node);
@@ -709,6 +791,8 @@ void destroyEntities()
     rcl_subscription_fini(&pid_type_subscriber, &node);
 #endif
 
+    rcl_subscription_fini(&range_scan_enable_subscriber, &node);
+
     if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
     {
         rcl_subscription_fini(&joy_subscriber, &node);
@@ -717,6 +801,7 @@ void destroyEntities()
 
     rcl_timer_fini(&control_timer);
     rcl_timer_fini(&sensor_timer);
+    rcl_timer_fini(&dist_sensor_timer);
     rcl_timer_fini(&sync_time_timer);
     rclc_executor_fini(&executor);
     rclc_support_fini(&support);

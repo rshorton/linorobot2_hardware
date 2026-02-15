@@ -14,6 +14,9 @@
 
 #include <Arduino.h>
 #include <stdio.h>
+#include <float.h>
+#include <cmath>
+
 #include "config.h"
 #include "motor.h"
 #define ENCODER_USE_INTERRUPTS
@@ -26,8 +29,8 @@
 #include "steering_angle_to_actuator_mapper_ebot_ackerman.h"
 #include "HMC5883L.h"
 #include "ADXL345.h"
-#include <float.h>
-#include <cmath>
+#include "hc_sr04.h"
+#include "serial_bus_servo.h"
 
 #define SAMPLE_TIME     10 //s
 #define ONE_SEC_IN_US   1000000
@@ -130,6 +133,15 @@ String labels[4] = {"FRONT LEFT - M1: ", "FRONT RIGHT - M2: "
 int total_motors = sizeof(motors);
 long long int counts_per_rev[sizeof(motors)];
 
+const int DIST_SENSOR_UPDATE_PERIOD_MS = 100;
+HCSR04 dist_sensor_front(0, HCSR04_TRIG_FRONT_OUT, HCSR04_ECHO_FRONT_IN, 6);
+HCSR04 dist_sensor_back(1, HCSR04_TRIG_BACK_OUT, HCSR04_ECHO_BACK_IN, 6);
+HCSR04 *dist_sensors[] = {&dist_sensor_front, &dist_sensor_back};
+const int NUM_DIST_SENSORS = sizeof(dist_sensors)/sizeof(HCSR04*);
+
+SerialServo servo_serial_front(Serial8, 1, 240, 1000, true);
+SerialServo servo_serial_back(Serial8, 2, 240, 1000, true);
+
 void printHelp()
 {
     Serial.println("Sampling process will spin the motors at its maximum RPM.");
@@ -139,6 +151,9 @@ void printHelp()
     Serial.println("'c' spin the motors with motor summary.");
     Serial.println("'m' show heading using magnetometer.");
     Serial.println("'a' test accelerometer.");
+    Serial.println("'d' test ultrasonic distance sensor.");
+    Serial.println("'v' set serial servo id.");
+    Serial.println("'e' set serial servo position.");
     Serial.println("'1' output magnetometer in RAW and UNI format for calibration.");
     Serial.println("'2' perform hard-iron magnetometer calibration.");
     Serial.println("'5' Encoder test.");
@@ -946,6 +961,116 @@ void steeringByLinearActuatorTest(SteeringUsingLinearActuator &steering)
     }
 }
 
+void testDistanceSensor()
+{
+    int sensor_idx = 0;
+    bool measuring = false;
+    HCSR04 *sensor = nullptr;
+
+    while (true) {
+        if (!measuring) {
+            sensor = dist_sensors[sensor_idx];
+            sensor->start();
+            measuring = true;
+
+            Serial.print("Started dist ranging, sensor: ");
+            Serial.println(sensor_idx);
+
+        } else {            
+            float dist;
+            if (sensor->get_distance_m(dist))
+            {
+                Serial.print("Range: ");
+                Serial.println(dist);
+
+            }
+            measuring = !sensor->finished();
+
+            if (!measuring) {
+                sensor_idx++;
+                sensor_idx = sensor_idx % NUM_DIST_SENSORS;
+
+                if (sensor_idx == 0) {
+                    delay(1000);
+                }
+            }
+        }
+        delay(10);
+    }
+}
+
+void testSetServoId()
+{
+    servo_serial_front.set_id(2);
+}
+
+void testSetServoAngle(SerialServo &servo_serial)
+{
+    const int16_t positions[] = {0, 500, 1000};
+    int pos_idx = 0;
+
+    const float positions_degrees[] = {0, 60, 120, 180, 240};
+    int pos_idx_deg = 0;
+
+    int16_t cur_pos = -1;
+    int16_t new_pos = -1;
+
+    while (true)
+    {
+        while (Serial.available())
+        {
+            char c = Serial.read();
+            switch (c)
+            {
+                case 'e':
+                {
+                    return;
+                }
+                case 'm':
+                {
+                    if (++pos_idx > sizeof(positions)/sizeof(int16_t) - 1) {
+                        pos_idx = 0;
+                    }
+                    new_pos = positions[pos_idx];
+                    break;
+                }
+                case 'd':
+                {
+                    if (++pos_idx_deg > sizeof(positions_degrees)/sizeof(float) - 1) {
+                        pos_idx_deg = 0;
+                    }
+
+                    servo_serial.move(positions_degrees[pos_idx_deg], 200);
+                    Serial.print("Set servo position to (degrees) ");
+                    Serial.println(positions_degrees[pos_idx_deg]);
+                    break;
+                }
+                case '+':
+                {
+                    new_pos = cur_pos + 1;
+                    break;
+                }
+                case '-':
+                {
+                    new_pos = cur_pos - 1;
+                    break;
+                }
+                default:
+                    break;
+            }
+
+            if (new_pos != cur_pos)
+            {
+                cur_pos = new_pos;
+                servo_serial.move(cur_pos, 200);
+                Serial.print("Set servo position to ");
+                Serial.println(cur_pos);
+            }
+        }
+    }
+}
+
+
 void loop()
 {
     while (Serial.available())
@@ -953,6 +1078,7 @@ void loop()
         char c = Serial.read();
         Serial.print(c);
         delay(1);
+        Serial.println("\r\n");
 
         switch(c)
         {
@@ -964,67 +1090,71 @@ void loop()
             }            
             case 's':
             {
-                Serial.println("\r\n");
                 sampleMotors(0);
                 break;
             }
             case 'c':
             {
-                Serial.println("\r\n");
                 sampleMotors(1);
                 break;
             }
             case 'm':
             {
-                Serial.println("\r\n");
                 magnetometerShowHeading();
                 break;
             }
             case 'a':
             {
-                Serial.println("\r\n");
                 accelerometerTest();
+                break;
+            }
+            case 'd':
+            {
+                testDistanceSensor();
+                break;
+            }
+            case 'v':
+            {
+                testSetServoId();
+                break;
+            }
+            case 'e':
+            {
+                testSetServoAngle(servo_serial_back);
                 break;
             }
             case '1':
             {
-                Serial.println("\r\n");
                 magnetometerOutputDataForCal();
                 break;
             }
             case '2':
             {
-                Serial.println("\r\n");
                 magnetometerHardIronCal();
                 break;
             }
             case '5':
             {
-                Serial.println("\r\n");
                 encoderTest(motor_str_controller, str_motor_enc);
                 break;
             }
             case '6':
             {
-                Serial.println("\r\n");
                 motorSpeedControlTest(motor1_speed_controller, motor2_speed_controller);
                 break;
             }
             case '7':
             {
-                Serial.println("\r\n");
                 steeringActuatorTest(steering_actuator, STR_ACT_MAX_POS, str_motor_enc);
                 break;
             }
             case '8':
             {
-                Serial.println("\r\n");
                 steeringActuatorMapperTest();
                 break;
             }
             case '9':
             {
-                Serial.println("\r\n");
                 steeringByLinearActuatorTest(steering_using_linear_act);
                 break;
             }
