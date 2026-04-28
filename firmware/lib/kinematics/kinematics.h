@@ -58,6 +58,10 @@ class Kinematics
         rpm getRPM(float linear_x, float linear_y, float angular_z);
         float getMaxRPM();
         enum base getBasePlatform() const { return base_platform_; }
+        void setBasePlatform(enum base platform) {
+            base_platform_ = platform;
+            total_wheels_ = getTotalWheels(base_platform_);
+        }
 
     private:
         rpm calculateRPM(float linear_x, float linear_y, float angular_z);

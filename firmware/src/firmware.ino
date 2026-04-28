@@ -56,6 +56,8 @@
 
 #define TUNE_PID_LOOP               // Allow tweaking of PID parameters via topic write
 
+#define FAIL_ON_UROS_LINK_LOST
+
 // Game controller buttons
 const int JOY_BUTTON_LB = 4; // left side, closest to top
 const int JOY_BUTTON_X = 2;  // X
@@ -77,6 +79,7 @@ const int JOY_AXIS_DPAD_UD = 7;
 #define ERR_BLINK_GENERAL   2
 #define ERR_BLINK_IMU       3
 #define ERR_BLINK_STEERING  4
+#define ERR_BLINK_UROS_LOST 5
 
 #define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){rclErrorLoop(ERR_BLINK_GENERAL);}}
 #define RCCHECK_WITH_BLINK_CODE(blink_code, fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){rclErrorLoop(blink_code);}}
@@ -87,6 +90,7 @@ rcl_publisher_t imu_publisher;
 rcl_publisher_t imu_mag_field_publisher;
 rcl_subscription_t twist_subscriber;
 rcl_subscription_t joy_subscriber;
+rcl_subscription_t ebot_enable_ackermann_subscriber;
 
 #if defined(TUNE_PID_LOOP)
 rcl_subscription_t pid_kp_subscriber;
@@ -111,6 +115,8 @@ geometry_msgs__msg__Twist twist_msg;
 sensor_msgs__msg__Joy joy_msg;
 int32_t button_data[9];
 float axes_data[8];
+
+std_msgs__msg__Bool ebot_enable_ackermann_msg;
 
 rclc_executor_t executor;
 rclc_support_t support;
@@ -147,7 +153,7 @@ Kinematics::rpm last_rpm = {0.0f, 0.0f, 0.0f, 0.0f};
 
 // Range sensors
 
-const int DIST_SENSOR_UPDATE_PERIOD_MS = 100;
+const int DIST_SENSOR_UPDATE_PERIOD_MS = 20;
 HCSR04 dist_sensor_front(0, HCSR04_TRIG_FRONT_OUT, HCSR04_ECHO_FRONT_IN, 6);
 HCSR04 dist_sensor_back(1, HCSR04_TRIG_BACK_OUT, HCSR04_ECHO_BACK_IN, 6);
 
@@ -157,15 +163,16 @@ RosRangeSensor range_sensor_back(dist_sensor_back, "hcsr04_back", "ebot/range/ba
 SerialServo range_servo_front(Serial8, 1, 240, 1000, true);
 SerialServo range_servo_back(Serial8, 2, 240, 1000, true);
 
-const float front_ranging_angles[] = {30.0f, 0.0f, -30.0f, 0.0f};
-const float back_ranging_angles[] = {30.0f, 0.0f, -30.0f, 0.0f};
+const float front_ranging_angles[] = {45.0f, 22.5f, 0.0f, -22.5f, -45.0f, -22.5f, 0.0f, 22.5f};
+//const float front_ranging_angles[] = {40.0f, 30.0f, 20.0f, 10.0f, 0.0f, -10.0f, -20.0f, -30.0f, -40.0f, -30.0f, -20.0f, -10.0f, 0.0f, 10.0f, 20.0f, 30.0f};
+//const float front_ranging_angles[] = {45.0f, 0.0f, -45.0f, 0.0f};
+//const float front_ranging_angles[] = {0.0f};
+const float back_ranging_angles[] = {45.0f, 0.0f, -45.0f, 0.0f};
+//const float back_ranging_angles[] = {60.0f, 30.0f, 0.0f, -30.0f, -60.0f, -30.0f, 0.0f, 30.0f};
 RosRotatingRangeSensor front_rotating_range_sensor("hcsr04_pan_joint_front", range_sensor_front, range_servo_front, front_ranging_angles,
-                                                   sizeof(front_ranging_angles)/sizeof(float), 120.0f, 500);
+                                                   sizeof(front_ranging_angles)/sizeof(float), 120.0f, 10);
 RosRotatingRangeSensor back_rotating_range_sensor("hcsr04_pan_joint_back", range_sensor_back, range_servo_back, back_ranging_angles,
-                                                   sizeof(back_ranging_angles)/sizeof(float), 120.0f, 500);
-
-//RosRangeSensor range_sensor_front(dist_sensor_front, "hcsr04_front", "ebot/range/front");
-//RosRangeSensor range_sensor_back(dist_sensor_back, "hcsr04_back", "ebot/range/front");
+                                                   sizeof(back_ranging_angles)/sizeof(float), 120.0f, 300);
 
 //////////////////////////////////
 // Wheel related
@@ -305,10 +312,10 @@ extern "C" void loop()
 
                 
                 front_rotating_range_sensor.init(node);
-                front_rotating_range_sensor.start(true);
+                front_rotating_range_sensor.start(false);
 
                 back_rotating_range_sensor.init(node);
-                back_rotating_range_sensor.start(true);
+                back_rotating_range_sensor.start(false);
             }
         }
         else if (micro_ros_init_successful)
@@ -317,6 +324,9 @@ extern "C" void loop()
             fullStop();
             // clean up micro-ROS components
             destroyEntities();
+#if defined(FAIL_ON_UROS_LINK_LOST)
+            rclErrorLoop(ERR_BLINK_UROS_LOST);
+#endif            
         }
     }
 
@@ -331,25 +341,27 @@ void controlCallback(rcl_timer_t *timer, int64_t last_call_time)
     RCLC_UNUSED(last_call_time);
     if (timer != NULL)
     {
-        if (steering.get_state() == SteeringUsingLinearActuator::State::kInit)
-        {
-            digitalWrite(MOTOR_RELAY_PWR_OUT, HIGH);
-            fullStop();
-            steering.home();
-            return;
-        }
-        else if (steering.get_state() == SteeringUsingLinearActuator::State::kHoming)
-        {
-            if (!is_moving() && !estopAsserted())
+        if (kinematics.getBasePlatform() == Kinematics::ACKERMANN) {
+            if (steering.get_state() == SteeringUsingLinearActuator::State::kInit)
             {
-                steering.update();
+                digitalWrite(MOTOR_RELAY_PWR_OUT, HIGH);
+                fullStop();
+                steering.home();
+                return;
             }
-            return;
-        }
-        else if (steering.get_state() == SteeringUsingLinearActuator::State::kHomingFailure)
-        {
-            rclErrorLoop(ERR_BLINK_STEERING);
-            return;
+            else if (steering.get_state() == SteeringUsingLinearActuator::State::kHoming)
+            {
+                if (!is_moving() && !estopAsserted())
+                {
+                    steering.update();
+                }
+                return;
+            }
+            else if (steering.get_state() == SteeringUsingLinearActuator::State::kHomingFailure)
+            {
+                rclErrorLoop(ERR_BLINK_STEERING);
+                return;
+            }
         }
 
         if (estopAsserted())
@@ -508,22 +520,35 @@ void joyCallback(const void *msgin)
         setSpeedScale(SPEED_SCALE_NORMAL);
     }
 
-    ackermann_teleop = joy_msg.axes.data[JOY_AXIS_LEFT_TRIGGER_BUTTON] == -1;
-    if (ackermann_teleop)
-    {
-        digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-        prev_joy_cmd_time = millis();
+    if (kinematics.getBasePlatform() == Kinematics::ACKERMANN) {
+        ackermann_teleop = joy_msg.axes.data[JOY_AXIS_LEFT_TRIGGER_BUTTON] == -1;
+        if (ackermann_teleop)
+        {
+            digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+            prev_joy_cmd_time = millis();
 
-        speed_x_in = joy_msg.axes.data[JOY_AXIS_LEFT_STICK_UD] * speed_scale;
+            speed_x_in = joy_msg.axes.data[JOY_AXIS_LEFT_STICK_UD] * speed_scale;
 
-        // fix - use steering mapper to determine.
-        const float STEERING_FULL_RANGE_DEG = 60.0f;
-        steering_angle_in = static_cast<float>(joy_msg.axes.data[JOY_AXIS_RIGHT_STICK_LR]) * STEERING_FULL_RANGE_DEG / 2.0f / 180.0f * M_PI;
+            // fix - use steering mapper to determine.
+            const float STEERING_FULL_RANGE_DEG = 60.0f;
+            steering_angle_in = static_cast<float>(joy_msg.axes.data[JOY_AXIS_RIGHT_STICK_LR]) * STEERING_FULL_RANGE_DEG / 2.0f / 180.0f * M_PI;
+            return;
+        }
     }
-    else
+    speed_x_in = 0.0;
+    steering_angle_in = 0.0;
+}
+
+void ebotEnableAckermannCallback(const void *msgin)
+{
+    enum Kinematics::base platform = Kinematics::ACKERMANN;
+    if (!ebot_enable_ackermann_msg.data)
     {
-        speed_x_in = 0.0;
-        steering_angle_in = 0.0;
+        platform = Kinematics::DIFFERENTIAL_DRIVE;
+    }
+    if (kinematics.getBasePlatform() != platform) {
+        kinematics.setBasePlatform(platform);
+        Logger::log_message(Logger::LogLevel::Info, "Using ackermann %d", ebot_enable_ackermann_msg.data);        
     }
 }
 
@@ -632,15 +657,18 @@ void createEntities()
         ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
         "ebot/range_scan_enable"));
 
+    RCCHECK(rclc_subscription_init_default(
+        &joy_subscriber,
+        &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Joy),
+        "joy"));
 
-    if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
-    {
-        RCCHECK(rclc_subscription_init_default(
-            &joy_subscriber,
-            &node,
-            ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Joy),
-            "joy"));
-    }
+    RCCHECK(rclc_subscription_init_default(
+        &ebot_enable_ackermann_subscriber,
+        &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
+        "ebot/enable_ackermann"));
+
     // create twist command subscriber
     RCCHECK(rclc_subscription_init_default(
         &twist_subscriber,
@@ -685,7 +713,7 @@ void createEntities()
     // WATCHOUT - Update the number of handles if more subscriptions/timers added.
     // Also make sure the micro_ros.meta specifies enough allocations for subs and pubs.
     // If this is too small, you should see the ERR_BLINK_GENERAL blink pattern.
-    const int num_handles = 7 /* subscriptions */ + 4 /* timers */;
+    const int num_handles = 8 /* subscriptions */ + 4 /* timers */;
     RCCHECK(rclc_executor_init(&executor, &support.context, num_handles, & allocator));
     RCCHECK(rclc_executor_add_subscription(
         &executor,
@@ -728,22 +756,26 @@ void createEntities()
         &rangeScanEnableCallback,
         ON_NEW_DATA));
 
-    if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
-    {
-        joy_msg.buttons.data = button_data;
-        joy_msg.buttons.size = 0;
-        joy_msg.buttons.capacity = sizeof(button_data);
-        joy_msg.axes.data = axes_data;
-        joy_msg.axes.size = 0;
-        joy_msg.axes.capacity = sizeof(axes_data);
+    joy_msg.buttons.data = button_data;
+    joy_msg.buttons.size = 0;
+    joy_msg.buttons.capacity = sizeof(button_data);
+    joy_msg.axes.data = axes_data;
+    joy_msg.axes.size = 0;
+    joy_msg.axes.capacity = sizeof(axes_data);
 
-        RCCHECK(rclc_executor_add_subscription(
-            &executor,
-            &joy_subscriber,
-            &joy_msg,
-            &joyCallback,
-            ON_NEW_DATA));
-    }
+    RCCHECK(rclc_executor_add_subscription(
+        &executor,
+        &joy_subscriber,
+        &joy_msg,
+        &joyCallback,
+        ON_NEW_DATA));
+
+    RCCHECK(rclc_executor_add_subscription(
+        &executor,
+        &ebot_enable_ackermann_subscriber,
+        &ebot_enable_ackermann_msg,
+        &ebotEnableAckermannCallback,
+        ON_NEW_DATA));
 
     RCCHECK(rclc_executor_add_timer(&executor, &control_timer));
     RCCHECK(rclc_executor_add_timer(&executor, &sensor_timer));
@@ -793,10 +825,10 @@ void destroyEntities()
 
     rcl_subscription_fini(&range_scan_enable_subscriber, &node);
 
-    if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
-    {
-        rcl_subscription_fini(&joy_subscriber, &node);
-    }
+    rcl_subscription_fini(&joy_subscriber, &node);
+
+    rcl_subscription_fini(&ebot_enable_ackermann_subscriber, &node);
+    
     rcl_node_fini(&node);
 
     rcl_timer_fini(&control_timer);
@@ -853,7 +885,8 @@ void moveBase()
     float speed_z = 0.0f;
     float steering_angle = 0.0f;
 
-    if (ackermann_teleop)
+    if (kinematics.getBasePlatform() == Kinematics::ACKERMANN && 
+        ackermann_teleop)
     {
         if (((millis() - prev_joy_cmd_time) > 200))
         {
@@ -884,25 +917,32 @@ void moveBase()
         speed_y = twist_msg.linear.y;
         speed_z = twist_msg.angular.z;
 
-        // Calculate steering angle (bicycle car model) from x velocity, twist and wheelbase
-        // http://wiki.ros.org/teb_local_planner/Tutorials/Planning%20for%20car-like%20robots
-        // (Positive angle when moving forward turns left)
-        steering_angle = rot_and_linear_vel_to_steering_angle(twist_msg.linear.x, twist_msg.angular.z, FR_WHEELS_DISTANCE);
-        
-        // Limit to steerable range
-        steering_angle = steering_angle_to_lin_actuator_mapper.actuator_setting_to_angle_fast(
-                         steering_angle_to_lin_actuator_mapper.angle_to_actuator_setting_fast(steering_angle));
+        if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
+        {
+            // Calculate steering angle (bicycle car model) from x velocity, twist and wheelbase
+            // http://wiki.ros.org/teb_local_planner/Tutorials/Planning%20for%20car-like%20robots
+            // (Positive angle when moving forward turns left)
+            steering_angle = rot_and_linear_vel_to_steering_angle(twist_msg.linear.x, twist_msg.angular.z, FR_WHEELS_DISTANCE);
+            
+            // Limit to steerable range
+            steering_angle = steering_angle_to_lin_actuator_mapper.actuator_setting_to_angle_fast(
+                            steering_angle_to_lin_actuator_mapper.angle_to_actuator_setting_fast(steering_angle));
 
-        if (new_twist_msg) {
-            new_twist_msg = false;
-            Logger::log_message(Logger::LogLevel::Debug, "Steering angle %f, xve: %f, zvel: %f",
-                steering_angle*180.0/M_PI, twist_msg.linear.x, twist_msg.angular.z);
+            if (new_twist_msg)
+            {
+                new_twist_msg = false;
+                Logger::log_message(Logger::LogLevel::Debug, "Steering angle %f, xve: %f, zvel: %f",
+                    steering_angle*180.0/M_PI, twist_msg.linear.x, twist_msg.angular.z);
+            }
         }
     }
 
-    if (kinematics.getBasePlatform() == Kinematics::ACKERMANN) {
+    if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
+    {
         req_rpm = kinematics.getRPMAckermann(speed_x, steering_angle);
-    } else {        
+    }
+    else
+    {        
         // get the required rpm for each motor based on required velocities, and base used
         req_rpm = kinematics.getRPM(
             speed_x, 
@@ -953,7 +993,11 @@ void moveBase()
         current_vel.linear_y,
         current_vel.angular_z);
 
-    steering.update();
+        
+    if (kinematics.getBasePlatform() == Kinematics::ACKERMANN)
+    {
+        steering.update();
+    }        
     motor1_speed_controller.update();
     motor2_speed_controller.update();
 #if NUM_BASE_MOTORS == 4
