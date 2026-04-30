@@ -225,4 +225,6 @@ ROBOT ORIENTATION
 #define HCSR04_ECHO_FRONT_IN    36  //  front
 #define HCSR04_ECHO_BACK_IN     38  //  back
 
+#define ENABLE_ACKERMANN        21  // Input (pull-up): 1 = ackermann steering, 0 = differential
+
 #endif

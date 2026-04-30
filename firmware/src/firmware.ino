@@ -90,7 +90,6 @@ rcl_publisher_t imu_publisher;
 rcl_publisher_t imu_mag_field_publisher;
 rcl_subscription_t twist_subscriber;
 rcl_subscription_t joy_subscriber;
-rcl_subscription_t ebot_enable_ackermann_subscriber;
 
 #if defined(TUNE_PID_LOOP)
 rcl_subscription_t pid_kp_subscriber;
@@ -115,8 +114,6 @@ geometry_msgs__msg__Twist twist_msg;
 sensor_msgs__msg__Joy joy_msg;
 int32_t button_data[9];
 float axes_data[8];
-
-std_msgs__msg__Bool ebot_enable_ackermann_msg;
 
 rclc_executor_t executor;
 rclc_support_t support;
@@ -270,12 +267,34 @@ bool estopAsserted()
     return digitalRead(ESTOP_IN) == 0;
 }
 
+bool ackermannSteeringEnabled()
+{
+    return digitalRead(ENABLE_ACKERMANN);
+}
+
+void configureSteeringMode()
+{
+    auto use_ackermann = ackermannSteeringEnabled();
+
+    enum Kinematics::base platform = Kinematics::ACKERMANN;
+    if (!use_ackermann)
+    {
+        platform = Kinematics::DIFFERENTIAL_DRIVE;
+    }
+    if (kinematics.getBasePlatform() != platform) {
+        kinematics.setBasePlatform(platform);
+        Logger::log_message(Logger::LogLevel::Info, "Using ackermann %d", use_ackermann);        
+    }
+}
+
 extern "C" void setup()
 {
     pinMode(LED_PIN, OUTPUT);
 
     pinMode(MOTOR_RELAY_PWR_OUT, OUTPUT);
     pinMode(MOTOR_RELAY_PWR_IN, INPUT);
+
+    pinMode(ENABLE_ACKERMANN, INPUT_PULLUP);
 
     bool imu_ok = imu.init();
     if (!imu_ok)
@@ -290,6 +309,8 @@ extern "C" void setup()
 
     Serial.begin(115200);
     set_microros_serial_transports(Serial);
+
+    configureSteeringMode();
 
     flashLED(2);
 }
@@ -316,6 +337,10 @@ extern "C" void loop()
 
                 back_rotating_range_sensor.init(node);
                 back_rotating_range_sensor.start(false);
+
+                // Enable the power relay.  Still requires the wireless switch to be
+                // enabled and the E-switch to be On before power is applied to motor drive. 
+                digitalWrite(MOTOR_RELAY_PWR_OUT, HIGH);
             }
         }
         else if (micro_ros_init_successful)
@@ -539,18 +564,6 @@ void joyCallback(const void *msgin)
     steering_angle_in = 0.0;
 }
 
-void ebotEnableAckermannCallback(const void *msgin)
-{
-    enum Kinematics::base platform = Kinematics::ACKERMANN;
-    if (!ebot_enable_ackermann_msg.data)
-    {
-        platform = Kinematics::DIFFERENTIAL_DRIVE;
-    }
-    if (kinematics.getBasePlatform() != platform) {
-        kinematics.setBasePlatform(platform);
-        Logger::log_message(Logger::LogLevel::Info, "Using ackermann %d", ebot_enable_ackermann_msg.data);        
-    }
-}
 
 void syncTime()
 {
@@ -663,12 +676,6 @@ void createEntities()
         ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Joy),
         "joy"));
 
-    RCCHECK(rclc_subscription_init_default(
-        &ebot_enable_ackermann_subscriber,
-        &node,
-        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
-        "ebot/enable_ackermann"));
-
     // create twist command subscriber
     RCCHECK(rclc_subscription_init_default(
         &twist_subscriber,
@@ -770,13 +777,6 @@ void createEntities()
         &joyCallback,
         ON_NEW_DATA));
 
-    RCCHECK(rclc_executor_add_subscription(
-        &executor,
-        &ebot_enable_ackermann_subscriber,
-        &ebot_enable_ackermann_msg,
-        &ebotEnableAckermannCallback,
-        ON_NEW_DATA));
-
     RCCHECK(rclc_executor_add_timer(&executor, &control_timer));
     RCCHECK(rclc_executor_add_timer(&executor, &sensor_timer));
     RCCHECK(rclc_executor_add_timer(&executor, &dist_sensor_timer));
@@ -826,8 +826,6 @@ void destroyEntities()
     rcl_subscription_fini(&range_scan_enable_subscriber, &node);
 
     rcl_subscription_fini(&joy_subscriber, &node);
-
-    rcl_subscription_fini(&ebot_enable_ackermann_subscriber, &node);
     
     rcl_node_fini(&node);
 
