@@ -195,6 +195,7 @@ EncoderSinglePhase motor4_encoder(MOTOR4_ENCODER_A, MOTOR4_ENCODER_B, COUNTS_PER
 
 // Speed controllers
 
+const float MOTOR_DIR_CHANGE_HOLD_OFF_RPM = 30.0f;
 PID motor1_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
 MotorSpeedController motor1_speed_controller(motor1_controller, motor1_encoder, motor1_pid);
 
@@ -980,6 +981,9 @@ void moveBase()
             current_rpm2, 
             current_rpm3, 
             current_rpm4);
+
+        //Logger::log_message(Logger::LogLevel::Info, "in, spd_x: %f spd_z: %f | mtr1, cur: %f, req: %f | mtr2, cur: %f, req: %f",
+        //    speed_x, speed_z, current_rpm1, req_rpm.motor1, current_rpm2, req_rpm.motor2);
     }
 
     unsigned long now = millis();

@@ -13,11 +13,12 @@ namespace
     const long DEF_UPDATE_PERIOD_MS = 50;
 }
 
-MotorSpeedController::MotorSpeedController(Motor &motor, EncoderInterface &encoder, PID &pid) :
+MotorSpeedController::MotorSpeedController(Motor &motor, EncoderInterface &encoder, PID &pid,
+                                           float direction_change_hold_off_rpm) :
     motor_(motor),
     encoder_(encoder),
     pid_(pid),
-    next_update_(0)
+    direction_change_hold_off_rpm_(direction_change_hold_off_rpm)
 {
 }
 
@@ -41,22 +42,25 @@ void MotorSpeedController::update()
     current_rpm_ = encoder_.getRPM();
     auto target = target_rpm_;
 
+    double pwm = 0.0;
+
     // Stop motor on direction changes and wait until stopped
-    if (abs(current_rpm_) > 0.0f &&
+    if (abs(current_rpm_) > direction_change_hold_off_rpm_ &&
         sgn(current_rpm_) != sgn(target_rpm_)) {
         target = 0.0f;
         changing_dir_ = true;
+        pid_.reset();
     } else {
         changing_dir_ = false;
-    }
 
-    auto pwm = pid_.compute(target, current_rpm_, false);
-    // Don't allow undershoot to spin motor in opposite direction.  This can happen
-    // at slow speeds.
-    if (sgn(pwm) != sgn(target_rpm_)) {
-        pwm = 0.0;
-        pid_.reset();
-    }
+        pwm = pid_.compute(target, current_rpm_, false);
+        // Don't allow undershoot to spin motor in opposite direction.  This can happen
+        // at slow speeds.
+        if (sgn(pwm) != sgn(target_rpm_)) {
+            pwm = 0.0;
+            pid_.reset();
+        }
+    }        
 
 #ifdef DEBUG_PRINTS    
     Serial.print("MOTOR_SPD_CTRL target ");

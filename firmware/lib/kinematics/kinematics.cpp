@@ -19,7 +19,7 @@ Kinematics::Kinematics(base robot_base, int motor_max_rpm, float max_rpm_ratio,
                        float motor_operating_voltage, float motor_power_max_voltage,
                        float wheel_diameter, float wheels_x_distance, float wheels_y_distance):
     base_platform_(robot_base),
-    wheels_x_distance_(base_platform_ == DIFFERENTIAL_DRIVE ? 0 : wheels_x_distance),
+    wheels_x_distance_(wheels_x_distance),
     wheels_y_distance_(wheels_y_distance),
     wheel_circumference_(PI * wheel_diameter),
     total_wheels_(getTotalWheels(robot_base))
@@ -57,6 +57,7 @@ Kinematics::rpm Kinematics::calculateRPM(float linear_x, float linear_y, float a
     float xy_sum = a_x_rpm + a_y_rpm;
     float xtan_sum = a_x_rpm + a_tan_rpm;
 
+#if 0    
     //calculate the scale value how much each target velocity
     //must be scaled down in such cases where the total required RPM
     //is more than the motor's max RPM
@@ -76,7 +77,7 @@ Kinematics::rpm Kinematics::calculateRPM(float linear_x, float linear_y, float a
         x_rpm *= vel_scaler;
         tan_rpm *= vel_scaler;
     }
-
+#endif
     Kinematics::rpm rpm;
 
     //calculate for the target motor RPM and direction
@@ -187,7 +188,9 @@ Kinematics::velocities Kinematics::getVelocities(float rpm1, float rpm2, float r
 
     //convert average revolutions per minute to revolutions per second
     average_rps_a = ((float)(-rpm1 + rpm2 - rpm3 + rpm4) / total_wheels_) / 60.0;
-    vel.angular_z =  (average_rps_a * wheel_circumference_) / ((wheels_x_distance_ / 2) + (wheels_y_distance_ / 2.0)); //  rad/s
+
+    auto wheels_x_distance = base_platform_ == DIFFERENTIAL_DRIVE ? 0 : wheels_x_distance_;
+    vel.angular_z =  (average_rps_a * wheel_circumference_) / ((wheels_x_distance / 2) + (wheels_y_distance_ / 2.0)); //  rad/s
 
     return vel;
 }

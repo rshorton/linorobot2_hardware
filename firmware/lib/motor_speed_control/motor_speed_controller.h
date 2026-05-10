@@ -11,7 +11,7 @@ class MotorSpeedController
 public:
     MotorSpeedController(Motor &motor,
                          EncoderInterface &encoder,
-                         PID &pid);
+                         PID &pid, float direction_change_hold_off_rpm = 1.0f);
 
     void set_target_rpm(float rpm) {
         target_rpm_ = rpm;
@@ -45,6 +45,7 @@ private:
     EncoderInterface &encoder_;
     PID &pid_;
 
+    float direction_change_hold_off_rpm_{1.0f};
     float target_rpm_{0.0f};
     float current_rpm_{0.0f};
     bool changing_dir_{false};

@@ -44,9 +44,9 @@
 // #define USE_MPU9250_IMU
 
 // Support approx 4rpm min speed with 24V powerwheels motors powered with Ryobi 18V Li battery (18v-13v)
-#define K_P 0.5                            // P constant
+#define K_P 3.0                            // P constant
 #define K_I 0.3                            // I constant
-#define K_D 2.8                            // D constant
+#define K_D 0.05                           // D constant
 
 /*
 ROBOT ORIENTATION
