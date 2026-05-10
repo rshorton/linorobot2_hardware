@@ -17,9 +17,10 @@ public:
     {
         kInit,
         kReady,
-        kMove,
-        kDelay,
-        kRange
+        kMoving,
+        kPostMoveDelay,
+        kRange,
+        kPostRangeDelay
     };
 
 public:
@@ -45,7 +46,7 @@ private:
     SerialServo &servo_;
     const float (&positions_deg_)[];
     int position_cnt_;
-    float zero_offset_deg_;
+    float zero_offset_deg_;         // Offset in servo units from servo zero position to zero position relative to robot coords
     int pos_delay_;
 
     float move_ms_per_degree_{10.0f};        

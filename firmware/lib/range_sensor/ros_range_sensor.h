@@ -15,6 +15,7 @@ public:
     void init(rcl_node_t &node);
     void destroy(rcl_node_t &node);
 
+    void start();
     bool update();
     bool is_busy() const {
         return measuring_;
@@ -27,8 +28,8 @@ private:
     HCSR04 &sensor_;
     const String frame_name_;
     const String topic_name_;
-    bool inited_;
-    bool measuring_;
+    bool inited_{false};
+    bool measuring_{false};
 
     rcl_publisher_t publisher_;
     sensor_msgs__msg__Range range_msg_;

@@ -55,7 +55,7 @@ void RosRotatingRangeSensor::init(rcl_node_t &node)
             &servo_joint_position_publisher_,
             &node,
             ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, JointState),
-            "sensor_joint_states");
+            "joint_states");
 
         range_sensor_.init(node);
 
@@ -94,6 +94,7 @@ void RosRotatingRangeSensor::start(bool scan)
             return;
         }
         scan_ = scan;
+        pos_idx_ = 0;
         next_update_ = millis() + move_next();
     }
 }
@@ -108,11 +109,19 @@ void RosRotatingRangeSensor::stop()
 
 void RosRotatingRangeSensor::update()
 {
-     unsigned long now = millis();
-     unsigned long delay = 50;
+    unsigned long now = millis();
+    unsigned long delay = 50;
 
+#if defined(DEBUG_LOG)
     Logger::log_message(Logger::LogLevel::Info, "RotatingDistSensor::update state: %d", state_);
+#endif    
 
+    publish_servo_position(servo_joint_position_publisher_, positions_deg_[pos_idx_]);
+
+    if (state_ != State::kMoving)
+    {
+        publish_servo_position(servo_joint_position_publisher_, positions_deg_[pos_idx_]);        
+    }
 
     if ((long)(now - next_update_) < 0)
     {
@@ -126,26 +135,29 @@ void RosRotatingRangeSensor::update()
         case State::kReady:
             break;
 
-        case State::kMove:
-            publish_servo_position(servo_joint_position_publisher_, positions_deg_[pos_idx_]);
-            state_ = State::kDelay;
+        case State::kMoving:
+            state_ = State::kPostMoveDelay;
             delay = pos_delay_;
             break;
 
-        case State::kDelay:
+        case State::kPostMoveDelay:
             state_ = State::kRange;
+            range_sensor_.start();
             delay = 0;
             break;
 
         case State::kRange:
-        {
-            float dist;
             // Returns true when measurement complete and sufficient settling time has occurred
-            if (range_sensor_.update())
+            if (!range_sensor_.update())
             {
-                delay = move_next();
+                state_ = State::kPostRangeDelay;
+                delay = 10;
             }
-        }
+            break;
+
+        case State::kPostRangeDelay:
+            delay = move_next();
+            break;
     }
     next_update_ = now + delay;
 }
@@ -154,17 +166,13 @@ unsigned long RosRotatingRangeSensor::move_servo(float pos)
 {
     auto move_duration = (int)(abs(servo_pos_ - pos) * move_ms_per_degree_);
     servo_pos_ = servo_.move(pos, move_duration);
-    state_ = State::kMove;
+    state_ = State::kMoving;
     return move_duration;
 }
 
 unsigned long RosRotatingRangeSensor::move_next()
 {
-    if (!scan_) {
-        return zero_offset_deg_;
-    }
-
-    if (++pos_idx_ >= position_cnt_) {
+    if (!scan_ || ++pos_idx_ >= position_cnt_) {
         pos_idx_ = 0;
     }        
     return move_servo(positions_deg_[pos_idx_] + zero_offset_deg_);
