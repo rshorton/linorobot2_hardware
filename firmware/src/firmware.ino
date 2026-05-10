@@ -56,7 +56,7 @@
 
 #define TUNE_PID_LOOP               // Allow tweaking of PID parameters via topic write
 
-#define FAIL_ON_UROS_LINK_LOST
+#undef FAIL_ON_UROS_LINK_LOST
 
 // Game controller buttons
 const int JOY_BUTTON_LB = 4; // left side, closest to top
@@ -197,17 +197,17 @@ EncoderSinglePhase motor4_encoder(MOTOR4_ENCODER_A, MOTOR4_ENCODER_B, COUNTS_PER
 
 const float MOTOR_DIR_CHANGE_HOLD_OFF_RPM = 30.0f;
 PID motor1_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
-MotorSpeedController motor1_speed_controller(motor1_controller, motor1_encoder, motor1_pid);
+MotorSpeedController motor1_speed_controller(motor1_controller, motor1_encoder, motor1_pid, MOTOR_DIR_CHANGE_HOLD_OFF_RPM);
 
 PID motor2_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
-MotorSpeedController motor2_speed_controller(motor2_controller, motor2_encoder, motor2_pid);
+MotorSpeedController motor2_speed_controller(motor2_controller, motor2_encoder, motor2_pid, MOTOR_DIR_CHANGE_HOLD_OFF_RPM);
 
 #if NUM_BASE_MOTORS == 4
 PID motor3_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
-MotorSpeedController motor3_speed_controller(motor3_controller, motor3_encoder, motor3_pid);
+MotorSpeedController motor3_speed_controller(motor3_controller, motor3_encoder, motor3_pid, MOTOR_DIR_CHANGE_HOLD_OFF_RPM);
 
 PID motor4_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
-MotorSpeedController motor4_speed_controller(motor4_controller, motor4_encoder, motor4_pid);
+MotorSpeedController motor4_speed_controller(motor4_controller, motor4_encoder, motor4_pid, MOTOR_DIR_CHANGE_HOLD_OFF_RPM);
 #endif
 
 //////////////////////////////////
@@ -262,6 +262,8 @@ MotorDiags motor4_diags;
 
 MotorDiags steering_motor_diags;
 ServoDiags steering_servo_diags;
+
+int connection_drop_cnt = 0;
 
 bool estopAsserted()
 {
@@ -324,14 +326,14 @@ extern "C" void loop()
     {
         prev_connect_test_time = millis();
         // check if the agent is connected
-        if (RMW_RET_OK == rmw_uros_ping_agent(10, 2))
+        if (RMW_RET_OK == rmw_uros_ping_agent(10, 50))
         {
             // reconnect if agent got disconnected or first time
             if (!micro_ros_init_successful)
             {
                 createEntities();
-                Logger::log_message(Logger::LogLevel::Info, "Micro ROS initialized");
-
+                Logger::log_message(Logger::LogLevel::Info, "Micro ROS initialized, connection drop cnt: %d",
+                    connection_drop_cnt);
                 
                 front_rotating_range_sensor.init(node);
                 front_rotating_range_sensor.start(false);
@@ -346,6 +348,8 @@ extern "C" void loop()
         }
         else if (micro_ros_init_successful)
         {
+            connection_drop_cnt++;
+
             // stop the robot when the agent is disconnected
             fullStop();
             // clean up micro-ROS components
@@ -791,6 +795,8 @@ void createEntities()
 
 void destroyEntities()
 {
+    micro_ros_init_successful = false;
+
     digitalWrite(LED_PIN, LOW);
 
     Logger::destroy_logger(node);
@@ -836,8 +842,6 @@ void destroyEntities()
     rcl_timer_fini(&sync_time_timer);
     rclc_executor_fini(&executor);
     rclc_support_fini(&support);
-
-    micro_ros_init_successful = false;
 }
 
 void fullStop()
@@ -1055,6 +1059,11 @@ void publishData()
 
 void rclErrorLoop(int n_times)
 {
+    fullStop();
+    if (micro_ros_init_successful) {
+        Logger::log_message(Logger::LogLevel::Error, "Fail code %d", n_times);
+    }
+
     while (true)
     {
         flashLED(n_times);
