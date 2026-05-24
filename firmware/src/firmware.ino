@@ -296,7 +296,6 @@ extern "C" void setup()
 
     pinMode(MOTOR_RELAY_PWR_OUT, OUTPUT);
     pinMode(MOTOR_RELAY_PWR_IN, INPUT);
-
     pinMode(ENABLE_ACKERMANN, INPUT_PULLUP);
 
     digitalWrite(MOTOR_RELAY_PWR_OUT, LOW);
@@ -697,7 +696,7 @@ void createEntities()
         "cmd_vel/muxed"));
 
     // create timer for actuating the motors at 50 Hz
-    const unsigned int control_timeout = 20;
+    const unsigned int control_timeout = 10;
     RCCHECK(rclc_timer_init_default(
         &control_timer,
         &support,
@@ -705,7 +704,7 @@ void createEntities()
         controlCallback));
 
     // create timer for reading and publishing sensor data 20 Hz
-    const unsigned int sensor_timeout = 50;
+    const unsigned int sensor_timeout = 10;
     RCCHECK(rclc_timer_init_default(
         &sensor_timer,
         &support,
