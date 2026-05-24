@@ -653,7 +653,7 @@ void createEntities()
 #endif
 
 #if defined(TUNE_PID_LOOP)
-    RCCHECK_WITH_BLINK_CODE(3, rclc_subscription_init_default(
+    RCCHECK(rclc_subscription_init_default(
         &pid_kp_subscriber,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
@@ -743,7 +743,7 @@ void createEntities()
         ON_NEW_DATA));
 
 #if defined(TUNE_PID_LOOP)
-    RCCHECK_WITH_BLINK_CODE(4, rclc_executor_add_subscription(
+    RCCHECK(rclc_executor_add_subscription(
         &executor,
         &pid_kp_subscriber,
         &pid_kp_msg,
