@@ -299,6 +299,8 @@ extern "C" void setup()
 
     pinMode(ENABLE_ACKERMANN, INPUT_PULLUP);
 
+    digitalWrite(MOTOR_RELAY_PWR_OUT, LOW);
+
     bool imu_ok = imu.init();
     if (!imu_ok)
     {
@@ -349,6 +351,9 @@ extern "C" void loop()
         else if (micro_ros_init_successful)
         {
             connection_drop_cnt++;
+
+            // Disable power relay
+            digitalWrite(MOTOR_RELAY_PWR_OUT, LOW);
 
             // stop the robot when the agent is disconnected
             fullStop();
@@ -1059,10 +1064,14 @@ void publishData()
 
 void rclErrorLoop(int n_times)
 {
+    // Disable power relay
+    digitalWrite(MOTOR_RELAY_PWR_OUT, LOW);
+
     fullStop();
     if (micro_ros_init_successful) {
         Logger::log_message(Logger::LogLevel::Error, "Fail code %d", n_times);
     }
+
 
     while (true)
     {
