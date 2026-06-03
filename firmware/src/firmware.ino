@@ -290,6 +290,19 @@ void configureSteeringMode()
     }
 }
 
+void configureMicrorosTransport()
+{
+#ifdef USE_ETHERNET    
+    byte local_mac[] = { 0xAA, 0xBB, 0xCC, 0xEE, 0xDD, 0xFF };
+    IPAddress local_ip(192, 168, 2, 101);
+    IPAddress agent_ip(192, 168, 2, 100);
+    size_t agent_port = 8888;
+    set_microros_native_ethernet_transports(local_mac, local_ip, agent_ip, agent_port);
+#else
+    set_microros_serial_transports(Serial);
+#endif
+}
+
 extern "C" void setup()
 {
     pinMode(LED_PIN, OUTPUT);
@@ -312,7 +325,8 @@ extern "C" void setup()
     micro_ros_init_successful = false;
 
     Serial.begin(115200);
-    set_microros_serial_transports(Serial);
+
+    configureMicrorosTransport();
 
     configureSteeringMode();
 
