@@ -50,6 +50,7 @@ Kinematics::rpm Kinematics::calculateRPM(float linear_x, float linear_y, float a
     float y_rpm = linear_vel_y_mins / wheel_circumference_;
     float tan_rpm = tangential_vel_mins / wheel_circumference_;
 
+#if 0    
     float a_x_rpm = fabs(x_rpm);
     float a_y_rpm = fabs(y_rpm);
     float a_tan_rpm = fabs(tan_rpm);
@@ -57,7 +58,6 @@ Kinematics::rpm Kinematics::calculateRPM(float linear_x, float linear_y, float a
     float xy_sum = a_x_rpm + a_y_rpm;
     float xtan_sum = a_x_rpm + a_tan_rpm;
 
-#if 0    
     //calculate the scale value how much each target velocity
     //must be scaled down in such cases where the total required RPM
     //is more than the motor's max RPM
