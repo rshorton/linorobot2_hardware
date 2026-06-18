@@ -12,7 +12,7 @@
 class Logger
 {
 public:
-    enum class LogLevel { Error, Warn, Info, Debug };
+    enum class LogLevel { Disabled, Error, Warn, Info, Debug };
 
     class TimeProvider
     {
@@ -24,6 +24,9 @@ public:
     static bool create_logger(rcl_node_t &node, TimeProvider &time_provider);
     static bool destroy_logger(rcl_node_t &node);
     static void log_message(Logger::LogLevel level, const char * fmt, ...);
+
+    static void log_message_serial(LogLevel level, const char * fmt, ...);
+    static void set_local_log_level(Logger::LogLevel level);
 
 protected:
     Logger(TimeProvider &time_provider);

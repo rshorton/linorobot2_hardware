@@ -12,6 +12,7 @@
 namespace {
 const int MAX_MSG_LEN = 1000;    
 Logger *logger = nullptr;
+Logger::LogLevel local_log_level = Logger::LogLevel::Info;
 
 // '/rosout' topic publishers need to use Durability = TRANSIENT_LOCAL to view messages in rqt app.
 const rmw_qos_profile_t rmw_qos_profile = {RMW_QOS_POLICY_HISTORY_KEEP_LAST, 10, 
@@ -45,6 +46,14 @@ bool Logger::destroy_logger(rcl_node_t &node)
     return true;
 }
 
+void Logger::set_local_log_level(Logger::LogLevel level)
+{
+    if (!logger) {
+        return;
+    }
+    local_log_level = level;
+}
+
 void Logger::log_message(LogLevel level, const char * fmt, ...)
 {
     if (!logger) {
@@ -58,6 +67,21 @@ void Logger::log_message(LogLevel level, const char * fmt, ...)
     va_end(args);
 
     logger->log(level, buf);
+}
+
+void Logger::log_message_serial(LogLevel level, const char * fmt, ...)
+{
+    if (local_log_level < level) {
+        return;
+    }
+	char buf[MAX_MSG_LEN];
+    va_list args;
+    va_start(args, fmt);
+
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+
+    Serial.println(buf);
 }
 
 Logger::Logger(TimeProvider &time_provider):
