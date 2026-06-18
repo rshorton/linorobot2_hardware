@@ -16,9 +16,9 @@ HCSR04::HCSR04(uint8_t instance, uint8_t pin_trig_out, uint8_t pin_echo_in, uint
     pin_trig_out_(pin_trig_out),
     pin_echo_in_(pin_echo_in),
     max_dist_m_(max_dist_m),
+    timeout_duration_(0),
     state_(State::kInit),
     start_time_(0),
-    timeout_duration_(0),
     echo_hi_time_(0),
     echo_lo_time_(0)
 {

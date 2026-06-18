@@ -7,6 +7,7 @@ class HCSR04
 {
 public:
     static const int MAX_INSTANCES = 2;
+    static const float field_of_view = 15.0f;
 
 private:
     enum class State
@@ -29,7 +30,7 @@ public:
     bool get_distance_m(float &distance);
     bool finished();
 
-    float get_field_of_view() { return 15.0*M_PI/180.0; }
+    float get_field_of_view() { return field_of_view*M_PI/180.0; }
 
     void pin_change();
 
