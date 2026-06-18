@@ -32,6 +32,7 @@
 
 #include "config.h"
 #include "logger.h"
+#include "time_util.h"
 #include "motor.h"
 #include "kinematics.h"
 #include "pid.h"
@@ -124,7 +125,6 @@ rcl_timer_t sensor_timer;
 rcl_timer_t dist_sensor_timer;
 rcl_timer_t sync_time_timer;
 
-unsigned long long time_offset = 0;
 unsigned long prev_cmd_time = 0;
 unsigned long prev_odom_update = 0;
 unsigned long prev_joy_cmd_time = 0;
@@ -429,7 +429,7 @@ void syncTimeCallback(rcl_timer_t * timer, int64_t last_call_time)
     RCLC_UNUSED(last_call_time);
     if (timer != NULL) 
     {
-        syncTime();
+        TimeUtil::sync_time();
     }
 }
 
@@ -587,36 +587,10 @@ void joyCallback(const void *msgin)
     steering_angle_in = 0.0;
 }
 
-
-void syncTime()
-{
-    // get the current time from the agent
-    unsigned long now = millis();
-    if (rmw_uros_sync_session(10) != RMW_RET_OK) {
-        Logger::log_message(Logger::LogLevel::Error, "Failed to sync time");
-        return;
-    }
-    unsigned long long ros_time_ms = rmw_uros_epoch_millis();
-    // now we can find the difference between ROS time and uC time
-    time_offset = ros_time_ms - now;
-    Logger::log_message(Logger::LogLevel::Info, "Local time diff: %ld", time_offset);
-}
-
-struct timespec getTime()
-{
-    struct timespec tp = {0};
-    // add time difference between uC time and ROS time to
-    // synchronize time with ROS
-    unsigned long long now = millis() + time_offset;
-    tp.tv_sec = now / 1000;
-    tp.tv_nsec = (now % 1000) * 1000000;
-    return tp;
-}
-
 class LogTimeProvider: public Logger::TimeProvider
 {
     struct timespec get_time() {
-        return getTime();
+        return TimeUtil::get_time();
     }
 } log_time_provider;
 
@@ -648,7 +622,7 @@ void createEntities()
         ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, MagneticField),
         "ebot/imu/mag"));
 
-    Logger::create_logger(node, log_time_provider);          
+    Logger::create_logger(node, log_time_provider);
 
 #if defined(PUBLISH_MOTOR_DIAGS)
     // create diagnostics publisher
@@ -735,11 +709,12 @@ void createEntities()
 
     // create timer for periodically syncing the local time with the main CPU
     const unsigned int sync_time_timeout = 5000;
-    RCCHECK(rclc_timer_init_default(
+    RCCHECK(rclc_timer_init_default2(
         &sync_time_timer,
         &support,
         RCL_MS_TO_NS(sync_time_timeout),
-        syncTimeCallback));
+        syncTimeCallback,
+        true));
 
     executor = rclc_executor_get_zero_initialized_executor();
 
@@ -809,7 +784,7 @@ void createEntities()
     RCCHECK(rclc_executor_add_timer(&executor, &sync_time_timer));
 
     // synchronize time with the agent
-    syncTime();
+    TimeUtil::sync_time();
     digitalWrite(LED_PIN, HIGH);
     micro_ros_init_successful = true;
 }
@@ -1038,7 +1013,7 @@ void publishSensorData()
     imu_msg = imu.getData();
     mag_field_msg = imu.getMagneticField();
 
-    struct timespec time_stamp = getTime();
+    struct timespec time_stamp = TimeUtil::get_time();
 
     imu_msg.header.stamp.sec = time_stamp.tv_sec;
     imu_msg.header.stamp.nanosec = time_stamp.tv_nsec;
@@ -1054,7 +1029,7 @@ void publishData()
 {
     odom_msg = odometry.getData();
     
-    struct timespec time_stamp = getTime();
+    struct timespec time_stamp = TimeUtil::get_time();
 
     odom_msg.header.stamp.sec = time_stamp.tv_sec;
     odom_msg.header.stamp.nanosec = time_stamp.tv_nsec;

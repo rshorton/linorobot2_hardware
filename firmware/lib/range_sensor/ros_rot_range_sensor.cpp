@@ -8,12 +8,11 @@
 #include <sensor_msgs/msg/joint_state.h>
 
 #include "logger.h"
+#include "time_util.h"
 
 #include "ros_rot_range_sensor.h"
 #include "ros_range_sensor.h"
 
-// fix - move definition to common file
-extern struct timespec getTime();
 
 RosRotatingRangeSensor::RosRotatingRangeSensor(const String &joint_frame_name, RosRangeSensor &range_sensor, SerialServo &servo,
                                                const float (&positions)[], int position_cnt, float zero_offset_deg, int pos_delay = 1000) :
@@ -78,7 +77,7 @@ void RosRotatingRangeSensor::publish_servo_position(rcl_publisher_t &pub, float 
         return;
     }
 
-    struct timespec time_stamp = getTime();
+    struct timespec time_stamp = TimeUtil::get_time();
     servo_joint_msg_.header.stamp.sec = time_stamp.tv_sec;
     servo_joint_msg_.header.stamp.nanosec = time_stamp.tv_nsec;
     servo_joint_msg_.position.data[0] = angle*M_PI/180.0f;

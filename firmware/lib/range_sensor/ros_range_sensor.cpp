@@ -11,11 +11,9 @@
 
 #include "ros_range_sensor.h"
 #include "logger.h"
+#include "time_util.h"
 
 #undef DEBUG_LOG
-
-// fix - move definition to common file
-extern struct timespec getTime();
 
 RosRangeSensor::RosRangeSensor(HCSR04 &sensor, const String &frame_name, const String &topic_name):
     sensor_(sensor),
@@ -63,7 +61,7 @@ void RosRangeSensor::publish_range(float range)
         return;
     }
 
-    struct timespec time_stamp = getTime();
+    struct timespec time_stamp = TimeUtil::get_time();
     range_msg_.header.stamp.sec = time_stamp.tv_sec;
     range_msg_.header.stamp.nanosec = time_stamp.tv_nsec;
 
