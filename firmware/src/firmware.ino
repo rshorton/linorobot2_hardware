@@ -794,7 +794,7 @@ void createEntities()
         "cmd_vel/muxed"));
 
     // create timer for actuating the motors
-    const unsigned int control_timeout = 40;
+    const unsigned int control_timeout = 20;
     RCCHECK(rclc_timer_init_default2(
         &control_timer,
         &support,
