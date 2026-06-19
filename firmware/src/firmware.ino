@@ -56,6 +56,15 @@
 #include "ros_range_sensor.h"
 #include "ros_rot_range_sensor.h"
 
+#include "stepper_28BYJ48.h"
+#include "ros_vl53l7cx_tof_sensor.h"
+#include "ros_tof_sensor_stepper_base.h"
+#include "ros_rot_tof_sensor.h"
+#include "vl53l7cx_address_assigner.h"
+#include "PCF8575.h"
+
+#undef USE_RANGE_SENSOR 
+#define USE_TOF_SENSOR
 #define TUNE_PID_LOOP               // Allow tweaking of PID parameters via topic write
 
 #undef FAIL_ON_UROS_LINK_LOST
@@ -82,6 +91,7 @@ const int JOY_AXIS_DPAD_UD = 7;
 #define ERR_BLINK_IMU       3
 #define ERR_BLINK_STEERING  4
 #define ERR_BLINK_UROS_LOST 5
+#define ERR_BLINK_TOF_ADDR  6
 
 #define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){rclErrorLoop(ERR_BLINK_GENERAL);}}
 #define RCCHECK_WITH_BLINK_CODE(blink_code, fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){rclErrorLoop(blink_code);}}
@@ -93,7 +103,7 @@ rcl_publisher_t imu_mag_field_publisher;
 rcl_subscription_t twist_subscriber;
 rcl_subscription_t joy_subscriber;
 
-#if defined(TUNE_PID_LOOP)
+#ifdef TUNE_PID_LOOP
 rcl_subscription_t pid_kp_subscriber;
 rcl_subscription_t pid_kd_subscriber;
 rcl_subscription_t pid_ki_subscriber;
@@ -123,7 +133,12 @@ rcl_allocator_t allocator;
 rcl_node_t node;
 rcl_timer_t control_timer;
 rcl_timer_t sensor_timer;
+#ifdef USE_RANGE_SENSOR
 rcl_timer_t dist_sensor_timer;
+#endif
+#ifdef USE_TOF_SENSOR
+rcl_timer_t tof_sensor_timer;
+#endif
 rcl_timer_t sync_time_timer;
 
 unsigned long prev_cmd_time = 0;
@@ -151,6 +166,7 @@ Kinematics::rpm last_rpm = {0.0f, 0.0f, 0.0f, 0.0f};
 
 // Range sensors
 
+#ifdef USE_RANGE_SENSOR
 const int DIST_SENSOR_UPDATE_PERIOD_MS = 20;
 HCSR04 dist_sensor_front(0, HCSR04_TRIG_FRONT_OUT, HCSR04_ECHO_FRONT_IN, 6);
 HCSR04 dist_sensor_back(1, HCSR04_TRIG_BACK_OUT, HCSR04_ECHO_BACK_IN, 6);
@@ -171,6 +187,40 @@ RosRotatingRangeSensor front_rotating_range_sensor("hcsr04_pan_joint_front", ran
                                                    sizeof(front_ranging_angles)/sizeof(float), 120.0f, 10);
 RosRotatingRangeSensor back_rotating_range_sensor("hcsr04_pan_joint_back", range_sensor_back, range_servo_back, back_ranging_angles,
                                                    sizeof(back_ranging_angles)/sizeof(float), 120.0f, 300);
+#endif
+
+#ifdef USE_TOF_SENSOR
+
+#ifdef USE_TOF_SENSOR_ON_STEPPER_BASE
+// (NOT USED.  Instead two sensors were used in the front with a 60 degree
+// angle between the them.)
+// Front and back(future) TOF sensors each mounted on a 28ByJ-48 stepper
+// that sweeps the sensor +/-scan_degrees.  All steppers are driven using the same
+// driver such that they all sweep in sync.
+
+// Stepper driver for 28BYJ-48 stepper(s)
+Stepper28BYJ48 tof_stepper(28, 33, 29, 34, 1500.0f, 2000.0f);
+
+// Object to manage the common stepper driver and publish joint position(s)
+const int TOF_ANGLE_SWEEP_DEG = 60;
+RosTofSensorStepperBase tof_stepper_base(tof_stepper, "tof_pan_joint_front", "tof_pan_joint_back");
+#endif
+
+// vl53l7cx sensors. Uses a separate I2C bus.
+const int TOF_SENSOR_UPDATE_PERIOD_MS = (1000/10);
+const uint8_t TOF_SENSOR_0_ADDR = 0x2a;
+const uint8_t TOF_SENSOR_1_ADDR = 0x2b;
+RosVl53l7cxTofSensor tof_sensor0(&Wire2, false, "front_right_tof_frame", "ebot/front_right_tof_sensor");
+RosVl53l7cxTofSensor tof_sensor1(&Wire2, true, "front_left_tof_frame", "ebot/front_left_tof_sensor");
+
+#ifdef USE_TOF_SENSOR_ON_STEPPER_BASE
+// Object that coordinates stepper movements with sensor readings
+RosRotatingTofSensor rot_tof_sensor(tof_sensor0, tof_stepper_base);
+#endif
+
+PCF8575 tof_reset_i2c_gpio(0x20, &Wire2);
+Vl53l7cxAddressAssigner Vl53l7cx_address_assigner(tof_reset_i2c_gpio);
+#endif
 
 //////////////////////////////////
 // Wheel related
@@ -304,8 +354,12 @@ void configureMicrorosTransport()
 #endif
 }
 
+
 extern "C" void setup()
 {
+    Serial.begin(9600);
+    Logger::set_local_log_level(Logger::LogLevel::Info);
+
     pinMode(LED_PIN, OUTPUT);
 
     pinMode(MOTOR_RELAY_PWR_OUT, OUTPUT);
@@ -331,10 +385,18 @@ extern "C" void setup()
         }
     }
 
+
+#ifdef USE_TOF_SENSOR
+    // Init and assign the TOF device addresses
+    Vl53l7cx_address_assigner.add_device(&tof_sensor0, 1,  TOF_SENSOR_0_ADDR);
+    Vl53l7cx_address_assigner.add_device(&tof_sensor1, 0,  TOF_SENSOR_1_ADDR);
+    if (!Vl53l7cx_address_assigner.assign()) {
+        Logger::log_message_serial(Logger::LogLevel::Error, "Failed to assign i2c address to the TOF sensors, %d");
+        rclErrorLoop(ERR_BLINK_TOF_ADDR);
+    }
+#endif
+
     micro_ros_init_successful = false;
-
-    Serial.begin(115200);
-
     configureMicrorosTransport();
 
     configureSteeringMode();
@@ -359,11 +421,21 @@ extern "C" void loop()
                 Logger::log_message(Logger::LogLevel::Info, "Micro ROS initialized, connection drop cnt: %d",
                     connection_drop_cnt);
                 
+#ifdef USE_RANGE_SENSOR                    
                 front_rotating_range_sensor.init(node);
                 front_rotating_range_sensor.start(false);
 
                 back_rotating_range_sensor.init(node);
                 back_rotating_range_sensor.start(false);
+#endif
+#ifdef USE_TOF_SENSOR
+                tof_sensor0.init(node);
+                tof_sensor1.init(node);
+#ifdef USE_TOF_SENSOR_ON_STEPPER_BASE                
+                tof_stepper_base.init(node);
+                rot_tof_sensor.enable(false);
+#endif                
+#endif                
 
                 // Enable the power relay.  Still requires the wireless switch to be
                 // enabled and the E-switch to be On before power is applied to motor drive. 
@@ -381,7 +453,7 @@ extern "C" void loop()
             fullStop();
             // clean up micro-ROS components
             destroyEntities();
-#if defined(FAIL_ON_UROS_LINK_LOST)
+#ifdef FAIL_ON_UROS_LINK_LOST
             rclErrorLoop(ERR_BLINK_UROS_LOST);
 #endif            
         }
@@ -451,6 +523,7 @@ void sensorCallback(rcl_timer_t * timer, int64_t last_call_time)
     }
 }
 
+#ifdef USE_RANGE_SENSOR
 void distSensorCallback(rcl_timer_t *timer, int64_t last_call_time)
 {
     RCLC_UNUSED(last_call_time);
@@ -460,6 +533,23 @@ void distSensorCallback(rcl_timer_t *timer, int64_t last_call_time)
         back_rotating_range_sensor.update();
     }
 }
+#endif
+
+#ifdef USE_TOF_SENSOR
+void tofSensorCallback(rcl_timer_t *timer, int64_t last_call_time)
+{
+    RCLC_UNUSED(last_call_time);
+    if (timer != NULL)
+    {
+#ifdef USE_TOF_SENSOR_ON_STEPPER_BASE
+        rot_tof_sensor.update();
+#else
+        tof_sensor0.update();
+        tof_sensor1.update();
+#endif        
+    }
+}
+#endif
 
 void twistCallback(const void *msgin)
 {
@@ -468,7 +558,7 @@ void twistCallback(const void *msgin)
     new_twist_msg = true;
 }
 
-#if defined(TUNE_PID_LOOP)
+#ifdef TUNE_PID_LOOP
 void pidKpCallback(const void * msgin) 
 {
     Logger::log_message(Logger::LogLevel::Info, "Tune Pid set Kp: %f, type: %d", 
@@ -550,9 +640,15 @@ void pidTypeCallback(const void * msgin)
 
 void rangeScanEnableCallback(const void * msgin)
 {
+#ifdef USE_RANGE_SENSOR
     auto scan = range_scan_enable_msg.data;
     front_rotating_range_sensor.start(scan);
     back_rotating_range_sensor.start(scan);
+#endif
+
+#ifdef USE_TOF_SENSOR_ON_STEPPER_BASE
+    rot_tof_sensor.set_scan_angle(range_scan_enable_msg.data? TOF_ANGLE_SWEEP_DEG: 0);
+#endif    
 }
 
 void setSpeedScale(float scale)
@@ -605,6 +701,11 @@ class LogTimeProvider: public Logger::TimeProvider
 
 void createEntities()
 {
+#ifndef USE_ETHERNET
+    // Only allow serial port logging if not using serial port for microros
+    Logger::set_local_log_level(Logger::LogLevel::Disabled);
+#endif    
+
     allocator = rcl_get_default_allocator();
     // create init_options
     RCCHECK(rclc_support_init(&support, 0, NULL, &allocator));
@@ -633,7 +734,7 @@ void createEntities()
 
     Logger::create_logger(node, log_time_provider);
 
-#if defined(PUBLISH_MOTOR_DIAGS)
+#ifdef PUBLISH_MOTOR_DIAGS
     // create diagnostics publisher
     motor1_diags.create(node, 1);
     motor2_diags.create(node, 2);
@@ -644,11 +745,11 @@ void createEntities()
     steering_motor_diags.create(node, 5);
 #endif
 
-#if defined(PUBLISH_SERVO_DIAGS)
+#ifdef PUBLISH_SERVO_DIAGS
     steering_servo_diags.create(node, "steering");
 #endif
 
-#if defined(TUNE_PID_LOOP)
+#ifdef TUNE_PID_LOOP
     RCCHECK(rclc_subscription_init_default(
         &pid_kp_subscriber,
         &node,
@@ -692,29 +793,45 @@ void createEntities()
         ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
         "cmd_vel/muxed"));
 
-    // create timer for actuating the motors at 50 Hz
-    const unsigned int control_timeout = 10;
-    RCCHECK(rclc_timer_init_default(
+    // create timer for actuating the motors
+    const unsigned int control_timeout = 40;
+    RCCHECK(rclc_timer_init_default2(
         &control_timer,
         &support,
         RCL_MS_TO_NS(control_timeout),
-        controlCallback));
+        controlCallback,
+        true));
 
-    // create timer for reading and publishing sensor data 20 Hz
-    const unsigned int sensor_timeout = 10;
-    RCCHECK(rclc_timer_init_default(
+    // create timer for reading and publishing sensor data
+    const unsigned int sensor_timeout = 20;
+    RCCHECK(rclc_timer_init_default2(
         &sensor_timer,
         &support,
         RCL_MS_TO_NS(sensor_timeout),
-        sensorCallback));
+        sensorCallback,
+        true));
 
+#ifdef USE_RANGE_SENSOR        
     // create timer for updating distance measurements
     const unsigned int dist_sensor_timeout = DIST_SENSOR_UPDATE_PERIOD_MS;
-    RCCHECK(rclc_timer_init_default(
+    RCCHECK(rclc_timer_init_default2(
         &dist_sensor_timer,
         &support,
         RCL_MS_TO_NS(dist_sensor_timeout),
-        distSensorCallback));
+        distSensorCallback,
+        true));
+#endif        
+
+#ifdef USE_TOF_SENSOR
+    // create timer for updating tof measurements
+    const unsigned int tof_sensor_timeout = TOF_SENSOR_UPDATE_PERIOD_MS;
+    RCCHECK(rclc_timer_init_default2(
+        &tof_sensor_timer,
+        &support,
+        RCL_MS_TO_NS(tof_sensor_timeout),
+        tofSensorCallback,
+        true));
+#endif        
 
     // create timer for periodically syncing the local time with the main CPU
     const unsigned int sync_time_timeout = 5000;
@@ -730,7 +847,7 @@ void createEntities()
     // WATCHOUT - Update the number of handles if more subscriptions/timers added.
     // Also make sure the micro_ros.meta specifies enough allocations for subs and pubs.
     // If this is too small, you should see the ERR_BLINK_GENERAL blink pattern.
-    const int num_handles = 8 /* subscriptions */ + 4 /* timers */;
+    const int num_handles = 8 /* subscriptions */ + 5 /* timers */;
     RCCHECK(rclc_executor_init(&executor, &support.context, num_handles, & allocator));
     RCCHECK(rclc_executor_add_subscription(
         &executor,
@@ -739,7 +856,7 @@ void createEntities()
         &twistCallback,
         ON_NEW_DATA));
 
-#if defined(TUNE_PID_LOOP)
+#ifdef TUNE_PID_LOOP
     RCCHECK(rclc_executor_add_subscription(
         &executor,
         &pid_kp_subscriber,
@@ -789,7 +906,12 @@ void createEntities()
 
     RCCHECK(rclc_executor_add_timer(&executor, &control_timer));
     RCCHECK(rclc_executor_add_timer(&executor, &sensor_timer));
+#ifdef USE_RANGE_SENSOR
     RCCHECK(rclc_executor_add_timer(&executor, &dist_sensor_timer));
+#endif    
+#ifdef USE_TOF_SENSOR    
+    RCCHECK(rclc_executor_add_timer(&executor, &tof_sensor_timer));
+#endif    
     RCCHECK(rclc_executor_add_timer(&executor, &sync_time_timer));
 
     // synchronize time with the agent
@@ -806,7 +928,7 @@ void destroyEntities()
 
     Logger::destroy_logger(node);
 
-#if defined(PUBLISH_MOTOR_DIAGS)
+#ifdef PUBLISH_MOTOR_DIAGS
     motor1_diags.destroy(node);
     motor2_diags.destroy(node);
 #if NUM_BASE_MOTORS == 4
@@ -816,19 +938,29 @@ void destroyEntities()
     steering_motor_diags.destroy(node);
 #endif
 
-#if defined(PUBLISH_SERVO_DIAGS)
+#ifdef PUBLISH_SERVO_DIAGS
     steering_servo_diags.destroy(node);
 #endif
 
+#ifdef USE_RANGE_SENSOR
     front_rotating_range_sensor.destroy(node);
     back_rotating_range_sensor.destroy(node);
+#endif
+
+#ifdef USE_TOF_SENSOR
+    tof_sensor0.destroy(node);
+    tof_sensor1.destroy(node);
+#ifdef USE_TOF_SENSOR_ON_STEPPER_BASE    
+    tof_stepper_base.destroy(node);
+#endif    
+#endif    
 
     rcl_publisher_fini(&odom_publisher, &node);
     rcl_publisher_fini(&imu_publisher, &node);
     rcl_publisher_fini(&imu_mag_field_publisher, &node);
     rcl_subscription_fini(&twist_subscriber, &node);
 
-#if defined(TUNE_PID_LOOP)
+#ifdef TUNE_PID_LOOP
     rcl_subscription_fini(&pid_kp_subscriber, &node);
     rcl_subscription_fini(&pid_kd_subscriber, &node);
     rcl_subscription_fini(&pid_ki_subscriber, &node);
@@ -843,7 +975,12 @@ void destroyEntities()
 
     rcl_timer_fini(&control_timer);
     rcl_timer_fini(&sensor_timer);
+#ifdef USE_RANGE_SENSOR
     rcl_timer_fini(&dist_sensor_timer);
+#endif    
+#ifdef USE_TOF_SENSOR    
+    rcl_timer_fini(&tof_sensor_timer);
+#endif    
     rcl_timer_fini(&sync_time_timer);
     rclc_executor_fini(&executor);
     rclc_support_fini(&support);
@@ -1045,7 +1182,7 @@ void publishData()
 
     RCSOFTCHECK(rcl_publish(&odom_publisher, &odom_msg, NULL));
 
-#if defined(PUBLISH_MOTOR_DIAGS)
+#ifdef PUBLISH_MOTOR_DIAGS
     motor1_diags.publish(time_stamp, req_rpm.motor1, current_rpm1, motor1_controller.getCurrent(), motor1_pid, motor1_encoder);
     motor2_diags.publish(time_stamp, req_rpm.motor2, current_rpm2, motor2_controller.getCurrent(), motor2_pid, motor2_encoder);
 #if NUM_BASE_MOTORS == 4
@@ -1056,7 +1193,7 @@ void publishData()
     steering_motor_diags.publish(time_stamp, str_motor_speed_controller.get_target_rpm(), str_motor_speed_controller.get_current_rpm(), 0.0f,
                                  str_motor_speed_controller.get_pid(), str_motor_speed_controller.get_encoder());    
 #endif
-#if defined(PUBLISH_SERVO_DIAGS)
+#ifdef PUBLISH_SERVO_DIAGS
     steering_servo_diags.publish(time_stamp, steering_actuator.get_target_position(), steering_actuator.get_current_position(),
                                  steering_actuator.get_pid(), steering_actuator.get_encoder());
 #endif
@@ -1070,8 +1207,8 @@ void rclErrorLoop(int n_times)
     fullStop();
     if (micro_ros_init_successful) {
         Logger::log_message(Logger::LogLevel::Error, "Fail code %d", n_times);
+        Logger::log_message_serial(Logger::LogLevel::Error, "Fail code %d", n_times);
     }
-
 
     while (true)
     {
