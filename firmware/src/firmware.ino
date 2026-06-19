@@ -44,6 +44,7 @@
 #include "motor_diagnostics.h"
 #include "servo_diagnostics.h"
 #include "util.h"
+#include "i2c_util.h"
 
 #include "motor_speed_controller.h"
 #include "linear_actuator.h"
@@ -312,6 +313,14 @@ extern "C" void setup()
     pinMode(ENABLE_ACKERMANN, INPUT_PULLUP);
 
     digitalWrite(MOTOR_RELAY_PWR_OUT, LOW);
+
+    // Use 400kHz for I2c bus 2 used for TOF sensors that have large status reads
+    Wire2.begin();
+    Wire2.setClock(400000);
+    
+#ifdef SCAN_I2C_BUS    
+    I2CUtil::scan_i2c_bus(Wire2);
+#endif    
 
     bool imu_ok = imu.init();
     if (!imu_ok)
