@@ -12,7 +12,7 @@ Dependency (add to firmware/extra_packages directory):
 
 The Elsabot base:
 
-* 4 wheels using Ackermann steering
+* 4 wheels using Ackermann steering (optional support for rear wheel drive with front casters)
 * Steering motor with lead-screw
 * Weelye 24V gearbox motors modified with a Hall sensor for measuring rotational speed
 * 6" wheels with rubber tires
@@ -25,26 +25,27 @@ The Elsabot base:
 * OAK-D camera with and pan and tilt servos
 * Display panel
 * USB-to-I2C adapter
-* Ultrasonic sensors (front and back)
+* VL53L7CX sensors
+* Removed: Ultrasonic sensors (front and back)
 * Seeed ReSpeaker USB Mic Array
 * Analog speakers connected thru ReSpeaker Mic array (to leverage AEC)
 * Various DC-to-DC converters:
   >* 12-24V to 5V 5A - powers Teensy, Oak-D, misc
   >* 12-40V to 12V 10A - powers USB hub and Jetson
   >* 12-28V to 7.5V 6A - powers servos
+  >* 5-3.3V 1.8A - powers sensors
 * INA226 power monitor - monitors CPU battery
 * 10-port powered USB hub
-* 433 MHz remote control relay
+* 433 MHz remote control relay (for controlling motor power relay)
 * Motor power relay
 * Schotty diodes for 'wire-oring' external power supply with battery
 * 2 18V Ryobi batteries: 1 6Ah for control (uC and CPU), 1 4Ah for powering motors
-* 15V 10A power adapter
+* 21V 5A power adapter
 * Lerobot SO-ARM101 arm with Realsense camera (future support)
 
 See this project for the ROS2 bring-up scripts:
 
 https://github.com/rshorton/elsabot_robot
-
 
 ## Glamour Shots
 
