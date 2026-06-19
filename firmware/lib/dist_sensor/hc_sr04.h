@@ -7,7 +7,7 @@ class HCSR04
 {
 public:
     static const int MAX_INSTANCES = 2;
-    static const float field_of_view = 15.0f;
+    static constexpr float field_of_view = 15.0f;
 
 private:
     enum class State

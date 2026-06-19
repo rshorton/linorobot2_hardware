@@ -13,7 +13,6 @@ void sync_time()
         Logger::log_message(Logger::LogLevel::Error, "Failed to sync time");
         return;
     }
-    unsigned long long ros_time_ms = rmw_uros_epoch_millis();
 }
 
 struct timespec get_time()
