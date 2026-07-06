@@ -135,9 +135,53 @@ class GY85IMU: public IMUInterface
             }
             else
             {          
-                mag_field_.x =  x*HMC5883L_GAIN_1370_SCALE/MILLI_GAUSS_PER_TELSA;
-                mag_field_.y =  y*HMC5883L_GAIN_1370_SCALE/MILLI_GAUSS_PER_TELSA;
-                mag_field_.z =  z*HMC5883L_GAIN_1370_SCALE/MILLI_GAUSS_PER_TELSA;
+                // units: uT x 10 (= milligauss)
+                float mag_data[3] = {x*HMC5883L_GAIN_1370_SCALE,
+                                     y*HMC5883L_GAIN_1370_SCALE,
+                                     z*HMC5883L_GAIN_1370_SCALE};
+
+#if 1   // IMU not mounted on robot and away from other objects
+                // move
+                float hard_iron_cal[3] = {-95.3, -113.2, 30.0};
+                float soft_iron_cal[3][3] = {
+                    { 1.002, 0.000, 0.002},
+                    { 0.000, 0.938, 0.001},
+                    {-0.002, 0.001, 1.065}
+                };
+#endif                
+#if 0   // IMU mounted on the robot, MotionCal (with somewhat limited orientations)
+                float hard_iron_cal[3] = {-30.2, -3.09, 136.25};
+                float soft_iron_cal[3][3] = {
+                    { 0.899, 0.022, 0.024},
+                    { 0.004, 0.949, 0.043},
+                    { 0.024, 0.043, 1.176}
+                };
+#endif
+#if 0   // IMU mounted on the robot, MotionCal (mount midway below display panel)
+        // (With power relay ON since this affected the heading by a few degrees.)
+                float hard_iron_cal[3] = {-52.6, -114.2, 34.6};
+                float soft_iron_cal[3][3] = {
+                    { 1.011, 0.002, 0.005},
+                    { 0.002, 0.938, 0.009},
+                    {-0.005, 0.009, 1.055}
+                };
+#endif
+
+
+                float h_cal[3];
+                for (int i = 0; i < 3; i++) {
+                    h_cal[i] = mag_data[i] - hard_iron_cal[i];
+                }
+
+                for (int i = 0; i < 3; i++) {
+                    mag_data[i] = (soft_iron_cal[i][0] * h_cal[0]) +
+                                  (soft_iron_cal[i][1] * h_cal[1]) +
+                                  (soft_iron_cal[i][2] * h_cal[2]);
+                }
+
+                mag_field_.x =  mag_data[0]/MILLI_GAUSS_PER_TELSA;
+                mag_field_.y =  mag_data[1]/MILLI_GAUSS_PER_TELSA;
+                mag_field_.z =  mag_data[2]/MILLI_GAUSS_PER_TELSA;
             }
             return mag_field_;
         }
