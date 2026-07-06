@@ -25,7 +25,8 @@
 
 namespace {
   const int I2C_FREQ = 400000;
-  const int RANGING_FREQ = 5;
+  const int RANGING_FREQ = 10;
+  const int INTEGRATION_PERIOD_MS = 60;
   
   const int READ_DURATION_CK_LIMIT = 10;          // The expected read time for the TOF status.  This assumes 400kHz I2C freq and
                                                   // all unneeded VL53L7CX status field disabled via the VL53L7CX_DISABLE_* defines in 
@@ -64,6 +65,8 @@ bool RosVl53l7cxTofSensor::init(rcl_node_t &node)
             Logger::DEBUG_FUNC(Logger::LogLevel::Info, "RosVl53l7cxTofSensor: init, error call sensor_init first");
             return false;
         }
+
+        log_settings();
 
 #ifdef PUB_AS_POINT_CLOUD
         topic_name_point_cloud_ = topic_name_base_ + "_point_cloud";
@@ -224,11 +227,12 @@ bool RosVl53l7cxTofSensor::sensor_init(uint8_t new_address)
         return false;
     }
 
-    uint32_t int_time =  vl53l7cx_.getIntegrationTime();
-    uint8_t mode = vl53l7cx_.getRangingMode();
-    uint8_t sharpener = vl53l7cx_.getSharpenerPercent();
-    Logger::log_message_serial(Logger::LogLevel::Info, "RosVl53l7cxTofSensor: int time: %d, mode: %d, sharpener: %d",
-                               int_time, (int)mode, (int)sharpener);
+    if (!vl53l7cx_.setIntegrationTime(INTEGRATION_PERIOD_MS)) {
+        Logger::log_message_serial(Logger::LogLevel::Error, "RosVl53l7cxTofSensor: Error, failed to integration period.");
+        return false;
+    }
+
+    log_settings();
 
     if (!vl53l7cx_.startRanging()) {
         Logger::log_message_serial(Logger::LogLevel::Error, "RosVl53l7cxTofSensor: Error, failed to start ranging.");
@@ -239,6 +243,20 @@ bool RosVl53l7cxTofSensor::sensor_init(uint8_t new_address)
     sensor_inited_ = true;
 
     return true;
+}
+
+void RosVl53l7cxTofSensor::log_settings()
+{
+    if (!sensor_inited_) {
+        return;
+    }
+    uint32_t int_time =  vl53l7cx_.getIntegrationTime();
+    uint8_t mode = vl53l7cx_.getRangingMode();
+    uint8_t sharpener = vl53l7cx_.getSharpenerPercent();
+    Logger::log_message_serial(Logger::LogLevel::Info, "RosVl53l7cxTofSensor: int time: %d, mode: %d, sharpener: %d",
+                               int_time, (int)mode, (int)sharpener);
+    Logger::log_message(Logger::LogLevel::Info, "RosVl53l7cxTofSensor: int time: %d, mode: %d, sharpener: %d",
+                               int_time, (int)mode, (int)sharpener);
 }
 
 #ifdef PUB_AS_POINT_CLOUD

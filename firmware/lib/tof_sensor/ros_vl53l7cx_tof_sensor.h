@@ -44,6 +44,8 @@ public:
     bool sensor_init(uint8_t new_address = RosVl53l7cxTofSensor::DEFAULT_ADDRESS);
 
 private:
+    void log_settings();
+    
 #ifdef PUB_AS_POINT_CLOUD
     void init_point_cloud_msg();
     void populate_point_cloud(VL53L7CX_ResultsData *results);

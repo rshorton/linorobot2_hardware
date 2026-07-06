@@ -66,6 +66,7 @@
 #undef USE_RANGE_SENSOR 
 #define USE_TOF_SENSOR
 #define TUNE_PID_LOOP               // Allow tweaking of PID parameters via topic write
+#undef SCAN_I2C_BUS
 
 #undef FAIL_ON_UROS_LINK_LOST
 
@@ -207,11 +208,17 @@ RosTofSensorStepperBase tof_stepper_base(tof_stepper, "tof_pan_joint_front", "to
 #endif
 
 // vl53l7cx sensors. Uses a separate I2C bus.
-const int TOF_SENSOR_UPDATE_PERIOD_MS = (1000/10);
+const int TOF_SENSOR_UPDATE_PERIOD_MS = (1000/30);
 const uint8_t TOF_SENSOR_0_ADDR = 0x2a;
 const uint8_t TOF_SENSOR_1_ADDR = 0x2b;
+const uint8_t TOF_SENSOR_2_ADDR = 0x2c;
+const uint8_t TOF_SENSOR_3_ADDR = 0x2d;
 RosVl53l7cxTofSensor tof_sensor0(&Wire2, false, "front_right_tof_frame", "ebot/front_right_tof_sensor");
-RosVl53l7cxTofSensor tof_sensor1(&Wire2, true, "front_left_tof_frame", "ebot/front_left_tof_sensor");
+RosVl53l7cxTofSensor tof_sensor1(&Wire2, true,  "front_left_tof_frame",  "ebot/front_left_tof_sensor");
+RosVl53l7cxTofSensor tof_sensor2(&Wire2, true,  "back_right_tof_frame",  "ebot/back_right_tof_sensor");
+RosVl53l7cxTofSensor tof_sensor3(&Wire2, false, "back_left_tof_frame",   "ebot/back_left_tof_sensor");
+
+int tof_sensor_to_read = 0;
 
 #ifdef USE_TOF_SENSOR_ON_STEPPER_BASE
 // Object that coordinates stepper movements with sensor readings
@@ -390,6 +397,9 @@ extern "C" void setup()
     // Init and assign the TOF device addresses
     Vl53l7cx_address_assigner.add_device(&tof_sensor0, 1,  TOF_SENSOR_0_ADDR);
     Vl53l7cx_address_assigner.add_device(&tof_sensor1, 0,  TOF_SENSOR_1_ADDR);
+    Vl53l7cx_address_assigner.add_device(&tof_sensor2, 2,  TOF_SENSOR_2_ADDR);
+    Vl53l7cx_address_assigner.add_device(&tof_sensor3, 3,  TOF_SENSOR_3_ADDR);
+
     if (!Vl53l7cx_address_assigner.assign()) {
         Logger::log_message_serial(Logger::LogLevel::Error, "Failed to assign i2c address to the TOF sensors, %d");
         rclErrorLoop(ERR_BLINK_TOF_ADDR);
@@ -431,6 +441,8 @@ extern "C" void loop()
 #ifdef USE_TOF_SENSOR
                 tof_sensor0.init(node);
                 tof_sensor1.init(node);
+                tof_sensor2.init(node);
+                tof_sensor3.init(node);
 #ifdef USE_TOF_SENSOR_ON_STEPPER_BASE                
                 tof_stepper_base.init(node);
                 rot_tof_sensor.enable(false);
@@ -544,8 +556,30 @@ void tofSensorCallback(rcl_timer_t *timer, int64_t last_call_time)
 #ifdef USE_TOF_SENSOR_ON_STEPPER_BASE
         rot_tof_sensor.update();
 #else
-        tof_sensor0.update();
-        tof_sensor1.update();
+        // Only read one sensor per update period
+        //auto start = millis();
+
+        switch(tof_sensor_to_read) {
+            case 0:
+                tof_sensor0.update();
+                break;
+            case 1:                
+                tof_sensor1.update();
+                break;
+            case 2:                                
+                tof_sensor2.update();
+                break;
+            case 3:                
+                tof_sensor3.update();
+                break;
+            default:
+                break;
+        }
+        if (++tof_sensor_to_read > 3) {
+            tof_sensor_to_read = 0;
+        }           
+        //Logger::log_message(Logger::LogLevel::Info,
+        //            "TOF sensor update took %d ms", millis() - start);
 #endif        
     }
 }
@@ -950,6 +984,8 @@ void destroyEntities()
 #ifdef USE_TOF_SENSOR
     tof_sensor0.destroy(node);
     tof_sensor1.destroy(node);
+    tof_sensor2.destroy(node);
+    tof_sensor3.destroy(node);
 #ifdef USE_TOF_SENSOR_ON_STEPPER_BASE    
     tof_stepper_base.destroy(node);
 #endif    
