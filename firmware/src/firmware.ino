@@ -63,6 +63,8 @@
 #include "vl53l7cx_address_assigner.h"
 #include "PCF8575.h"
 
+#include "power_control.h"
+
 #undef USE_RANGE_SENSOR 
 #define USE_TOF_SENSOR
 #define TUNE_PID_LOOP               // Allow tweaking of PID parameters via topic write
@@ -71,22 +73,25 @@
 #undef FAIL_ON_UROS_LINK_LOST
 
 // Game controller buttons
-const int JOY_BUTTON_LB = 4; // left side, closest to top
-const int JOY_BUTTON_X = 2;  // X
-const int JOY_BUTTON_Y = 3;  // Y
-const int JOY_BUTTON_A = 0;  // A
-const int JOY_BUTTON_B = 1;  // B
+const int JOY_BUTTON_A = 0;             // A
+const int JOY_BUTTON_B = 1;             // B
+const int JOY_BUTTON_X = 2;             // X
+const int JOY_BUTTON_Y = 3;             // Y
+const int JOY_BUTTON_LB = 4;            // front left side, closest to top
+const int JOY_BUTTON_RB = 5;            // front right side, closest to top
+const int JOY_LEFT_AXIS_BUTTON = 7;      // pressing down on joy stick
+const int JOY_RIGHT_AXIS_BUTTON = 8;    // pressing down on joy stick
 
-const int JOY_AXIS_LEFT_STICK_LR = 0;
-const int JOY_AXIS_LEFT_STICK_UD = 1;
+const int JOY_AXIS_LEFT_STICK_LR = 0;   
+const int JOY_AXIS_LEFT_STICK_UD = 1;   
 const int JOY_AXIS_RIGHT_STICK_LR = 2;
 const int JOY_AXIS_RIGHT_STICK_UD = 3;
 
 const int JOY_AXIS_RIGHT_TRIGGER_BUTTON = 4;
 const int JOY_AXIS_LEFT_TRIGGER_BUTTON = 5;
 
-const int JOY_AXIS_DPAD_LR = 6;
-const int JOY_AXIS_DPAD_UD = 7;
+const int JOY_AXIS_DPAD_LR = 6;         // dpad L/R
+const int JOY_AXIS_DPAD_UD = 7;         // dpad U/D
 
 #define ERR_BLINK_GENERAL   2
 #define ERR_BLINK_IMU       3
@@ -321,11 +326,14 @@ MotorDiags motor4_diags;
 MotorDiags steering_motor_diags;
 ServoDiags steering_servo_diags;
 
+const uint32_t POWER_CONTROL_WD_PERIOD_MS = 1000;
+PowerControl power_control(MOTOR_RELAY_PWR_OUT, true, MOTOR_RELAY_PWR_IN, true);
+
 int connection_drop_cnt = 0;
 
 bool estopAsserted()
 {
-    return digitalRead(ESTOP_IN) == 0;
+    return !power_control.is_enabled();
 }
 
 bool ackermannSteeringEnabled()
@@ -350,17 +358,17 @@ void configureSteeringMode()
 
 void configureMicrorosTransport()
 {
-#ifdef USE_ETHERNET    
+#ifdef USE_ETHERNET
     byte local_mac[] = { 0xAA, 0xBB, 0xCC, 0xEE, 0xDD, 0xFF };
     IPAddress local_ip(192, 168, 2, 101);
     IPAddress agent_ip(192, 168, 2, 100);
     size_t agent_port = 8888;
+
     set_microros_native_ethernet_transports(local_mac, local_ip, agent_ip, agent_port);
 #else
     set_microros_serial_transports(Serial);
 #endif
 }
-
 
 extern "C" void setup()
 {
@@ -368,12 +376,10 @@ extern "C" void setup()
     Logger::set_local_log_level(Logger::LogLevel::Info);
 
     pinMode(LED_PIN, OUTPUT);
-
-    pinMode(MOTOR_RELAY_PWR_OUT, OUTPUT);
-    pinMode(MOTOR_RELAY_PWR_IN, INPUT);
     pinMode(ENABLE_ACKERMANN, INPUT_PULLUP);
 
-    digitalWrite(MOTOR_RELAY_PWR_OUT, LOW);
+    // Require joystitck button to be held to enable power to motors
+    power_control.configure(POWER_CONTROL_WD_PERIOD_MS);
 
     // Use 400kHz for I2c bus 2 used for TOF sensors that have large status reads
     Wire2.begin();
@@ -391,7 +397,6 @@ extern "C" void setup()
             flashLED(3);
         }
     }
-
 
 #ifdef USE_TOF_SENSOR
     // Init and assign the TOF device addresses
@@ -451,7 +456,7 @@ extern "C" void loop()
 
                 // Enable the power relay.  Still requires the wireless switch to be
                 // enabled and the E-switch to be On before power is applied to motor drive. 
-                digitalWrite(MOTOR_RELAY_PWR_OUT, HIGH);
+                power_control.enable(true);
             }
         }
         else if (micro_ros_init_successful)
@@ -459,7 +464,7 @@ extern "C" void loop()
             connection_drop_cnt++;
 
             // Disable power relay
-            digitalWrite(MOTOR_RELAY_PWR_OUT, LOW);
+            power_control.enable(false);
 
             // stop the robot when the agent is disconnected
             fullStop();
@@ -468,6 +473,8 @@ extern "C" void loop()
 #ifdef FAIL_ON_UROS_LINK_LOST
             rclErrorLoop(ERR_BLINK_UROS_LOST);
 #endif            
+        } else {
+            Logger::log_message_serial(Logger::LogLevel::Info, "uros ping failed, establishing initial connection");
         }
     }
 
@@ -485,7 +492,8 @@ void controlCallback(rcl_timer_t *timer, int64_t last_call_time)
         if (kinematics.getBasePlatform() == Kinematics::ACKERMANN) {
             if (steering.get_state() == SteeringUsingLinearActuator::State::kInit)
             {
-                digitalWrite(MOTOR_RELAY_PWR_OUT, HIGH);
+                power_control.enable(true);
+
                 fullStop();
                 steering.home();
                 return;
@@ -705,6 +713,14 @@ void joyCallback(const void *msgin)
     else if (joy_msg.buttons.data[JOY_BUTTON_A])
     {
         setSpeedScale(SPEED_SCALE_NORMAL);
+    }
+
+    // Handshake with the power controller if manually
+    // driving or if the enable button (B) held
+    if (joy_msg.axes.data[JOY_AXIS_LEFT_TRIGGER_BUTTON] == -1 ||
+        joy_msg.axes.data[JOY_AXIS_RIGHT_TRIGGER_BUTTON] == -1 ||
+        joy_msg.buttons.data[JOY_BUTTON_B]) {
+        power_control.handshake();
     }
 
     if (kinematics.getBasePlatform() == Kinematics::ACKERMANN) {
@@ -1238,7 +1254,7 @@ void publishData()
 void rclErrorLoop(int n_times)
 {
     // Disable power relay
-    digitalWrite(MOTOR_RELAY_PWR_OUT, LOW);
+    power_control.enable(false);
 
     fullStop();
     if (micro_ros_init_successful) {
