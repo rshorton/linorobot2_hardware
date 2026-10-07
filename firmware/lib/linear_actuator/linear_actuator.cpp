@@ -7,7 +7,7 @@
 #include "linear_actuator.h"
 #include "util.h"
 
-#define DEBUG_PRINTS
+#undef DEBUG_PRINTS
 
 namespace
 {
@@ -123,8 +123,10 @@ long LinearActuator::homing_state_machine()
         case HomingState::kSearch:
         {
             int shaft_pos = encoder_.read();
+#if defined(DEBUG_PRINTS)            
             Serial.print("Enc pos: ");
             Serial.println(shaft_pos);
+#endif            
 
             if (abs(shaft_pos) > max_position_)
             {
