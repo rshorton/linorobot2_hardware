@@ -1306,9 +1306,9 @@ void flashLED(int n_times)
     for (int i = 0; i < n_times; i++)
     {
         digitalWrite(LED_PIN, HIGH);
-        delay(150);
+        delay(350);
         digitalWrite(LED_PIN, LOW);
-        delay(150);
+        delay(350);
     }
     delay(1000);
 }
