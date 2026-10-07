@@ -334,7 +334,7 @@ MotorDiags motor4_diags;
 MotorDiags steering_motor_diags;
 ServoDiags steering_servo_diags;
 
-const uint32_t POWER_CONTROL_WD_PERIOD_MS = 1000;
+const uint32_t POWER_CONTROL_WD_PERIOD_MS = 300;
 PowerControl power_control(MOTOR_RELAY_PWR_OUT, true, MOTOR_RELAY_PWR_IN, true);
 
 int connection_drop_cnt = 0;
