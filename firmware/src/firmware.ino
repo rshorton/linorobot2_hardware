@@ -79,7 +79,7 @@ const int JOY_BUTTON_X = 2;             // X
 const int JOY_BUTTON_Y = 3;             // Y
 const int JOY_BUTTON_LB = 4;            // front left side, closest to top
 const int JOY_BUTTON_RB = 5;            // front right side, closest to top
-const int JOY_LEFT_AXIS_BUTTON = 7;      // pressing down on joy stick
+const int JOY_LEFT_AXIS_BUTTON = 7;     // pressing down on joy stick
 const int JOY_RIGHT_AXIS_BUTTON = 8;    // pressing down on joy stick
 
 const int JOY_AXIS_LEFT_STICK_LR = 0;   
@@ -715,16 +715,19 @@ void joyCallback(const void *msgin)
         setSpeedScale(SPEED_SCALE_NORMAL);
     }
 
-    // Handshake with the power controller if manually
-    // driving or if the enable button (B) held
-    if (joy_msg.axes.data[JOY_AXIS_LEFT_TRIGGER_BUTTON] == -1 ||
-        joy_msg.axes.data[JOY_AXIS_RIGHT_TRIGGER_BUTTON] == -1 ||
-        joy_msg.buttons.data[JOY_BUTTON_B]) {
+    // Handshake with the power controller to enable drive power if:
+    //  Ackermann manual driving mode: JOY_BUTTON_LB must be held
+    //  Teleop driving mode: JOY_BUTTON_RB must be held (joy node requires this)
+    //  Nav driving mode: JOY_AXIS_RIGHT_TRIGGER_BUTTON
+
+    if (joy_msg.axes.data[JOY_AXIS_RIGHT_TRIGGER_BUTTON] == -1 ||
+        joy_msg.buttons.data[JOY_BUTTON_LB] ||
+        joy_msg.buttons.data[JOY_BUTTON_RB]) {
         power_control.handshake();
     }
 
     if (kinematics.getBasePlatform() == Kinematics::ACKERMANN) {
-        ackermann_teleop = joy_msg.axes.data[JOY_AXIS_LEFT_TRIGGER_BUTTON] == -1;
+        ackermann_teleop = joy_msg.buttons.data[JOY_BUTTON_LB];
         if (ackermann_teleop)
         {
             digitalWrite(LED_PIN, !digitalRead(LED_PIN));
