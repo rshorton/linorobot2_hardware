@@ -69,8 +69,11 @@
 #endif
 
 namespace {
-		const int TICK_HIST_LEN = 20;
-		const int MAX_RPM_CALC_WINDOW_US = 250000;
+const int TICK_HIST_LEN = 20;
+const int MAX_RPM_CALC_WINDOW_US = 250000;
+
+const int MAX_TICK_DURATION = 500000;
+const int NUM_TICKS_FOR_AVE_CALC = 6;
 }
 
 class EncoderSinglePhase_internal_state_t {
@@ -95,16 +98,16 @@ public:
 class EncoderSinglePhase: public EncoderInterface
 {
 public:
-	EncoderSinglePhase(uint8_t pin1, uint8_t pin2, int counts_per_rev, bool invert, DirectionProvider &dir_provider):
+	EncoderSinglePhase(uint8_t pin1, uint8_t pin2, float counts_per_rev, bool invert, DirectionProvider &dir_provider):
 		EncoderInterface(),
 		counts_per_rev_(counts_per_rev),
 		encoder(dir_provider)
 	{
- 	  (void)pin2;
+ 	  	(void)pin2;
 		(void)invert;
 
 		pinMode(pin1, INPUT);
-		counts_per_rev_ = counts_per_rev;	
+		id_ = pin1;			// Use pin as ID for debugging
 
 #ifdef ENCODER_USE_INTERRUPTS
 		attach_interrupt(pin1, &encoder);
@@ -143,23 +146,36 @@ public:
 		int tic_cnt = 0;
 
 #ifdef DEBUG_PRINTS	
+		int diffs[TICK_HIST_LEN];
+		int ages[TICK_HIST_LEN];
+		int diff_idx = 0;
+
 		auto hist_cnt = encoder.hist_cnt;
 #endif		
-
 		for (int i = 0; i < encoder.hist_cnt - 1; i++) {
 			if (--idx < 0) {
 				idx = TICK_HIST_LEN - 1;
 			}
 			auto t = encoder.tic_time[idx];
+			auto t_diff = current_time - t;
+
 			// Only look as far back as the calc window unless
 			// too few tics currently seen for that window (moving slowly).
-			if ((current_time - t > MAX_RPM_CALC_WINDOW_US && tic_cnt > 5) ||
-					current_time - t > MAX_RPM_CALC_WINDOW_US*4) {
+			if ((i == 0 && t_diff > MAX_TICK_DURATION) ||
+				(t_diff > MAX_RPM_CALC_WINDOW_US && tic_cnt >= NUM_TICKS_FOR_AVE_CALC) ||
+	 			 t_diff > MAX_RPM_CALC_WINDOW_US*4) {
 				break;
 			}
+
 			if (t2 > t) {
 				accum += t2 - t;
 				tic_cnt++;
+
+#ifdef DEBUG_PRINTS	
+				diffs[diff_idx] = t2 - t;
+				ages[diff_idx] = current_time - t;
+				diff_idx++;
+#endif				
 			}				
 			t2 = t;
 		}
@@ -167,32 +183,49 @@ public:
 
 		float rpm = 0.0f;
 		if (accum > 0) {
-			rpm = 60000000.0f*((float)tic_cnt/(float)counts_per_rev_)/(float)accum*(last_dir_fwd? 1.0f: -1.0f);
+			rpm = 60000000.0f*((float)tic_cnt/counts_per_rev_)/(float)accum*(last_dir_fwd? 1.0f: -1.0f);
 		}
 
 #ifdef DEBUG_PRINTS	
-		Serial.print("Tick history, idx: ");
- 	  Serial.print(encoder.hist_idx);
-		Serial.print(", tic_cnt: ");
-		Serial.print(tic_cnt);
-		Serial.print(", hist_cnt: ");
-		Serial.print(hist_cnt);
-		Serial.print(", ");
+		if (tic_cnt > 0) {
+			Serial.print("ENC ID: ");
+			Serial.print(id_);
+			Serial.print(", rpm: ");
+			Serial.print(rpm);
+			Serial.print(", tick history, idx: ");
+			Serial.print(encoder.hist_idx);
+			Serial.print(", tic_cnt: ");
+			Serial.print(tic_cnt);
+			Serial.print(", hist_cnt: ");
+			Serial.print(hist_cnt);
+			Serial.print(", ");
 
-		for (int i = 0; i < TICK_HIST_LEN; i++) {
-  	  Serial.print(encoder.tic_time[i]);
-    	Serial.print(" ");
-		}
-  	Serial.println("\r\n");
+#if 0		
+			for (int i = 0; i < TICK_HIST_LEN; i++) {
+  	  			Serial.print(encoder.tic_time[i]);
+    			Serial.print(" ");
+			}
+#endif
+			Serial.print(", diffs: ");
+			for (int i = 0; i < diff_idx; i++) {
+  	  			Serial.print(diffs[i]);
+    			Serial.print("(");
+    			Serial.print(ages[i]);
+    			Serial.print(")");
+    			Serial.print(" ");
+			}		
+  			Serial.println("\r\n");	
+		}			
 #endif		
 
 		return rpm;
 	}
 
 private:
-	int counts_per_rev_;
+	float counts_per_rev_;
 	unsigned long prev_update_time_{0};
-  long prev_encoder_ticks_{0};
+    long prev_encoder_ticks_{0};
+    int id_{0};
 	EncoderSinglePhase_internal_state_t encoder;
 
 public:
