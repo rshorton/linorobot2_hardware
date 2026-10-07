@@ -15,6 +15,10 @@
 #include <micro_ros_platformio.h>
 #include <stdio.h>
 
+#if defined(QNETHERNET)
+#include <QNEthernet.h>
+#endif
+
 #include <rcl/rcl.h>
 #include <rcl/error_handling.h>
 #include <rclc/rclc.h>
@@ -102,6 +106,10 @@ const int JOY_AXIS_DPAD_UD = 7;         // dpad U/D
 #define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){rclErrorLoop(ERR_BLINK_GENERAL);}}
 #define RCCHECK_WITH_BLINK_CODE(blink_code, fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){rclErrorLoop(blink_code);}}
 #define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){}}
+
+#if defined(QNETHERNET)
+namespace qn = qindesign::network;
+#endif
 
 rcl_publisher_t odom_publisher;
 rcl_publisher_t imu_publisher;
@@ -359,12 +367,34 @@ void configureSteeringMode()
 void configureMicrorosTransport()
 {
 #ifdef USE_ETHERNET
-    byte local_mac[] = { 0xAA, 0xBB, 0xCC, 0xEE, 0xDD, 0xFF };
-    IPAddress local_ip(192, 168, 2, 101);
+    IPAddress client_ip(192, 168, 2, 101);
+    IPAddress mask(255, 255, 255, 0);
+    IPAddress gateway(192, 168, 2, 100);
     IPAddress agent_ip(192, 168, 2, 100);
     size_t agent_port = 8888;
 
-    set_microros_native_ethernet_transports(local_mac, local_ip, agent_ip, agent_port);
+#ifdef QNETHERNET
+
+    qn::Ethernet.end(); 
+    delay(5000); // Give the system time to drop completely
+
+
+    qn::Ethernet.begin(client_ip, mask, gateway); 
+    Serial.print("Waiting for Ethernet link...");
+    while (!qn::Ethernet.linkState()) {
+        delay(100);
+    }
+    Serial.println(" Link active!");
+
+    uint8_t mac[6];
+    qn::Ethernet.macAddress(mac);
+
+    set_microros_native_ethernet_transports(mac, client_ip, agent_ip, agent_port);
+#else
+    byte local_mac[] = { 0xAA, 0xBB, 0xCC, 0xEE, 0xDD, 0xFF };
+    set_microros_native_ethernet_transports(local_mac, client_ip, agent_ip, agent_port);
+#endif      
+
 #else
     set_microros_serial_transports(Serial);
 #endif
