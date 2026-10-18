@@ -387,25 +387,21 @@ class RoboClawMotor: public MotorInterface
     protected:
         void forward(int level) override
         {
-            if (level != last_setting_) {
-                last_setting_ = level;
-                controller_.set_level(channel_, level);
-                if (dir_status_out_)
-                {
-                    *dir_status_out_ = invert_? 0: 1;
-                }                
+            last_setting_ = level;
+            controller_.set_level(channel_, level);
+            if (dir_status_out_)
+            {
+                *dir_status_out_ = invert_? 0: 1;
             }                
         }
 
         void reverse(int level) override
         {
-            if (level != last_setting_) {
-                last_setting_ = level;
-                controller_.set_level(channel_, level);
-                if (dir_status_out_)
-                {
-                    *dir_status_out_ = invert_? 1: 0;
-                }                
+            last_setting_ = level;
+            controller_.set_level(channel_, level);
+            if (dir_status_out_)
+            {
+                *dir_status_out_ = invert_? 1: 0;
             }                
         }
 
