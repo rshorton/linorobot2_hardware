@@ -51,6 +51,7 @@
 #include "serial_bus_servo.h"
 #include "ros_range_sensor.h"
 
+#undef USE_IMU_SENSOR
 #define TUNE_PID_LOOP // Allow tweaking of PID parameters via topic write
 #undef STEERING_PID_TWEAKS
 #define DRIVER_CONTROL
@@ -124,7 +125,9 @@ const int ERR_BLINK_TOF_ADDR = 4;
 enum class DriverControlMode { Disabled, Full, PedalEnablesMovement };
 
 rcl_publisher_t odom_publisher;
+#if defined(USE_IMU_SENSOR)
 rcl_publisher_t imu_publisher;
+#endif
 rcl_subscription_t twist_subscriber;
 
 #if defined(DRIVER_CONTROL)
@@ -151,7 +154,9 @@ std_msgs__msg__Float32 pid_ki_msg;
 #endif
 
 nav_msgs__msg__Odometry odom_msg;
+#if defined(USE_IMU_SENSOR)
 sensor_msgs__msg__Imu imu_msg;
+#endif
 geometry_msgs__msg__Twist twist_msg;
 
 rclc_executor_t executor;
@@ -235,8 +240,8 @@ INA226 pwr_mon_drive_bat;
 HCSR04 dist_sensor0(0, HCSR04_TRIG1_OUT, HCSR04_ECHO1_IN, 6);
 HCSR04 dist_sensor1(1, HCSR04_TRIG2_OUT, HCSR04_ECHO2_IN, 6);
 
-RosRangeSensor range_sensor0(dist_sensor0, "hcsr04_back_left", "range/back_left");
-RosRangeSensor range_sensor1(dist_sensor1, "hcsr04_back_right", "range/back_right");
+RosRangeSensor range_sensor0(dist_sensor0, "hcsr04_back_left", "ebot/back_left_range");
+RosRangeSensor range_sensor1(dist_sensor1, "hcsr04_back_right", "ebot/back_right_range");
 
 bool range0_active = false;
 
@@ -254,7 +259,9 @@ Kinematics kinematics(
     LR_WHEELS_DISTANCE);
 
 Odometry odometry;
+#if defined(USE_IMU_SENSOR)
 IMU imu;
+#endif
 
 float current_rpm1 = 0.0;
 float current_rpm2 = 0.0;
@@ -615,12 +622,14 @@ void createEntities()
         ROSIDL_GET_MSG_TYPE_SUPPORT(nav_msgs, msg, Odometry),
         "ebot/odom"));
 
+#if defined(USE_IMU_SENSOR)        
     // create IMU publisher
     RCCHECK(rclc_publisher_init_default(
         &imu_publisher,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
-        "imu/data"));
+        "ebot/imu/data"));
+#endif        
 
     control_battery_diags.create(node);
     drive_battery_diags.create(node);
@@ -825,7 +834,9 @@ void destroyEntities()
 #endif    
 
     rcl_publisher_fini(&odom_publisher, &node);
+#if defined(USE_IMU_SENSOR)    
     rcl_publisher_fini(&imu_publisher, &node);
+#endif    
 
 #if defined(DRIVER_CONTROL)
     rcl_subscription_fini(&driver_control_subscriber, &node);
@@ -1060,7 +1071,9 @@ void publishBatteryState()
 void publishData()
 {
     odom_msg = odometry.getData();
+#if defined(USE_IMU_SENSOR)    
     imu_msg = imu.getData();
+#endif    
 
     struct timespec time_stamp = getTime();
 
@@ -1068,6 +1081,7 @@ void publishData()
     odom_msg.header.stamp.nanosec = time_stamp.tv_nsec;
     RCSOFTCHECK(rcl_publish(&odom_publisher, &odom_msg, NULL));
 
+#if defined(USE_IMU_SENSOR)
     imu_msg.header.stamp.sec = time_stamp.tv_sec;
     imu_msg.header.stamp.nanosec = time_stamp.tv_nsec;
     RCSOFTCHECK(rcl_publish(&imu_publisher, &imu_msg, NULL));
