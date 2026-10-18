@@ -229,6 +229,9 @@ ROBOT ORIENTATION
 #define HCSR04_ECHO1_IN       3   // HCSR04 #1 echo input
 #define HCSR04_ECHO2_IN       1   // HCSR04 #2 echo input (back sensor)        
 
+#define TOF_SENSOR_0_LP_PIN   14  // vl53l7cx 0 Lp pin
+#define TOF_SENSOR_1_LP_PIN   15  // vl53l7cx 1 Lp pin
+
 // I2C addresses
 #define IIC_ADDR_INA226_CTRL_BAT    0x40  // INA226 connected to control circuitry battery
 #define IIC_ADDR_INA226_DRIVE_BAT   0x41  // INA226 connected to motor battery (shunt not connected)

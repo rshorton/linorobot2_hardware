@@ -12,15 +12,24 @@
 class Logger
 {
 public:
-    enum class LogLevel { Error, Warn, Info, Debug };
-    
+    enum class LogLevel { Disabled, Error, Warn, Info, Debug };
+
+    class TimeProvider
+    {
+    public:
+        virtual struct timespec get_time() = 0;
+    };
+
 public:
-    static bool create_logger(rcl_node_t &node);
+    static bool create_logger(rcl_node_t &node, TimeProvider &time_provider);
     static bool destroy_logger(rcl_node_t &node);
     static void log_message(Logger::LogLevel level, const char * fmt, ...);
 
+    static void log_message_serial(LogLevel level, const char * fmt, ...);
+    static void set_local_log_level(Logger::LogLevel level);
+
 protected:
-    Logger();
+    Logger(TimeProvider &time_provider);
     bool create(rcl_node_t &node);
     void destroy(rcl_node_t &node);
 
@@ -28,8 +37,9 @@ private:
     void log(Logger::LogLevel level, const char* msg);
 
 private:
+    TimeProvider &time_provider_;
+    bool inited_{false};
     rcl_publisher_t publisher_log_;
-    bool inited_;
 
     rcl_interfaces__msg__Log log_msg;
 };

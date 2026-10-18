@@ -31,6 +31,7 @@
 
 #include "config.h"
 #include "logger.h"
+#include "time_util.h"
 #include "motor.h"
 #include "kinematics.h"
 #include "pid.h"
@@ -54,6 +55,12 @@
 #undef STEERING_PID_TWEAKS
 #define DRIVER_CONTROL
 #define JOY_BUTTON_ENABLES_DRIVER_CONTROL
+#define USE_TOF_SENSOR
+
+#if defined(USE_TOF_SENSOR)
+#include "ros_vl53l7cx_tof_sensor.h"
+#include "vl53l7cx_address_assigner.h"
+#endif
 
 const int ONE_SEC_IN_US = 1000000;
 const int ONE_SEC_IN_MS = 1000;
@@ -88,6 +95,7 @@ const int JOY_AXIS_DPAD_UD = 7;
 
 const int ERR_BLINK_GENERAL = 2;
 const int ERR_BLINK_IMU = 3;
+const int ERR_BLINK_TOF_ADDR = 4;
 
 #define RCCHECK(fn)                          \
     {                                        \
@@ -153,6 +161,10 @@ rcl_node_t node;
 rcl_timer_t control_timer;
 rcl_timer_t battery_timer;
 rcl_timer_t dist_sensor_timer;
+#ifdef USE_TOF_SENSOR
+rcl_timer_t tof_sensor_timer;
+#endif
+rcl_timer_t sync_time_timer;
 
 unsigned long long time_offset = 0;
 unsigned long prev_cmd_time = 0;
@@ -187,6 +199,20 @@ EncoderNone motor2_encoder(MOTOR2_ENCODER_A, MOTOR2_ENCODER_B, COUNTS_PER_REV2, 
 RoboClawController roboclaw(ROBOCLAW_ADDRESS, ROBOCLAW_BAUD_RATE, ROBOCLAW_SERIAL, ROBOCLAW_INVERT_SERIAL_IO, ROBOCLAW_SERIAL_TIMEOUT_US, 2);
 RoboClawMotor motor1_controller(roboclaw, 0, MOTOR1_INV, &m1_dir_status);
 RoboClawMotor motor2_controller(roboclaw, 1, MOTOR2_INV, &m2_dir_status);
+
+#ifdef USE_TOF_SENSOR
+// vl53l7cx sensors. Uses a separate I2C bus.
+const int TOF_SENSOR_UPDATE_PERIOD_MS = (1000/30);
+const uint8_t TOF_SENSOR_0_ADDR = 0x2a;
+const uint8_t TOF_SENSOR_1_ADDR = 0x2b;
+
+RosVl53l7cxTofSensor tof_sensor0(&Wire1, true,  "front_left_tof_frame",  "ebot/front_left_tof_sensor");
+RosVl53l7cxTofSensor tof_sensor1(&Wire1, false, "front_right_tof_frame", "ebot/front_right_tof_sensor");
+
+int tof_sensor_to_read = 0;
+
+Vl53l7cxAddressAssigner_gpio Vl53l7cx_address_assigner;
+#endif
 
 PID motor1_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
 PID motor2_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
@@ -237,9 +263,7 @@ float current_rpm4 = 0.0;
 
 MotorDiags motor1_diags;
 MotorDiags motor2_diags;
-
 MotorDiags steering_diags;
-
 
 bool pwr_relay_on = false;
 
@@ -251,6 +275,7 @@ bool estopAsserted()
 void setup()
 {
     pinMode(LED_PIN, OUTPUT);
+    Logger::set_local_log_level(Logger::LogLevel::Info);
 
     // FIX Move pin setup to classes which use them..
     pinMode(MOTOR_RELAY_PWR_OUT, OUTPUT);
@@ -268,6 +293,23 @@ void setup()
     pwr_mon_drive_bat.configure();
     pwr_mon_drive_bat.calibrate(0.1, 20);
 
+    // Use 400kHz for I2c bus 2 used for TOF sensors that have large status reads
+    Wire1.begin();
+    Wire1.setClock(400000);
+
+
+#ifdef USE_TOF_SENSOR
+    // Init and assign the TOF device addresses
+    Vl53l7cx_address_assigner.add_device(&tof_sensor0, TOF_SENSOR_0_LP_PIN,  TOF_SENSOR_0_ADDR);
+    Vl53l7cx_address_assigner.add_device(&tof_sensor1, TOF_SENSOR_1_LP_PIN,  TOF_SENSOR_1_ADDR);
+
+    if (!Vl53l7cx_address_assigner.assign()) {
+        Logger::log_message_serial(Logger::LogLevel::Error, "Failed to assign i2c address to the TOF sensors");
+        rclErrorLoop(ERR_BLINK_TOF_ADDR);
+    }
+#endif
+
+    #if defined(USE_IMU_SENSOR)
     bool imu_ok = imu.init();
     if (!imu_ok)
     {
@@ -276,6 +318,7 @@ void setup()
             flashLED(3);
         }
     }
+#endif    
 
     micro_ros_init_successful = false;
 
@@ -301,6 +344,13 @@ void loop()
                 createEntities();
                 publishBatteryState();
                 Logger::log_message(Logger::LogLevel::Error, "Micro ROS initialized");
+
+#ifdef USE_TOF_SENSOR
+                tof_sensor0.init(node);
+                tof_sensor1.init(node);
+#endif
+                range_sensor0.init(node);
+                range_sensor1.init(node);
             }
         }
         else if (micro_ros_init_successful)
@@ -347,6 +397,16 @@ void controlCallback(rcl_timer_t *timer, int64_t last_call_time)
     }
 }
 
+void syncTimeCallback(rcl_timer_t * timer, int64_t last_call_time) 
+{
+    RCLC_UNUSED(last_call_time);
+    if (timer != NULL) 
+    {
+        TimeUtil::sync_time();
+    }
+}
+
+
 void batteryCallback(rcl_timer_t *timer, int64_t last_call_time)
 {
     RCLC_UNUSED(last_call_time);
@@ -355,6 +415,33 @@ void batteryCallback(rcl_timer_t *timer, int64_t last_call_time)
         publishBatteryState();
     }
 }
+
+#ifdef USE_TOF_SENSOR
+void tofSensorCallback(rcl_timer_t *timer, int64_t last_call_time)
+{
+    RCLC_UNUSED(last_call_time);
+    if (timer != NULL)
+    {
+        // Only read one sensor per update period
+        //auto start = millis();
+        switch(tof_sensor_to_read) {
+            case 0:
+                tof_sensor0.update();
+                break;
+            case 1:                
+                tof_sensor1.update();
+                break;
+            default:
+                break;
+        }
+        if (++tof_sensor_to_read > 1) {
+            tof_sensor_to_read = 0;
+        }           
+        //Logger::log_message(Logger::LogLevel::Info,
+        //            "TOF sensor update took %d ms", millis() - start);
+    }
+}
+#endif
 
 void twistCallback(const void *msgin)
 {
@@ -420,12 +507,19 @@ void distSensorCallback(rcl_timer_t *timer, int64_t last_call_time)
         bool active = false;
         if (range0_active) {
             active = range_sensor0.update();
+            if (!active) {
+                range_sensor1.start();
+                range0_active = false;
+                //Logger::log_message(Logger::LogLevel::Info, "range sensor 0 finished");
+            }
         } else {
             active = range_sensor1.update();
+            if (!active) {
+                range_sensor0.start();
+                range0_active = true;
+                //Logger::log_message(Logger::LogLevel::Info, "range sensor 1 finished");
+            }
         }            
-        if (!active) {
-            range0_active = !range0_active;
-        }
     }
 }
 
@@ -500,6 +594,13 @@ void pidKiCallback(const void *msgin)
 }
 #endif
 
+class LogTimeProvider: public Logger::TimeProvider
+{
+    struct timespec get_time() {
+        return TimeUtil::get_time();
+    }
+} log_time_provider;
+
 void createEntities()
 {
     allocator = rcl_get_default_allocator();
@@ -512,7 +613,7 @@ void createEntities()
         &odom_publisher,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(nav_msgs, msg, Odometry),
-        "odom/unfiltered"));
+        "ebot/odom"));
 
     // create IMU publisher
     RCCHECK(rclc_publisher_init_default(
@@ -523,9 +624,8 @@ void createEntities()
 
     control_battery_diags.create(node);
     drive_battery_diags.create(node);
-    range_sensor0.create(node);
-    range_sensor1.create(node);
-    Logger::create_logger(node);   
+
+    Logger::create_logger(node, log_time_provider);   
 
 #if defined(PUBLISH_MOTOR_DIAGS)
     // create diagnostics publisher
@@ -585,7 +685,7 @@ void createEntities()
         &twist_subscriber,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
-        "cmd_vel"));
+        "cmd_vel/muxed"));
 
     // create timer for actuating the motors at 50 Hz (1000/20)
     const unsigned int control_timeout = 20;
@@ -611,9 +711,30 @@ void createEntities()
         RCL_MS_TO_NS(dist_sensor_timeout),
         distSensorCallback));
 
+#ifdef USE_TOF_SENSOR
+    // create timer for updating tof measurements
+    const unsigned int tof_sensor_timeout = TOF_SENSOR_UPDATE_PERIOD_MS;
+    RCCHECK(rclc_timer_init_default(
+        &tof_sensor_timer,
+        &support,
+        RCL_MS_TO_NS(tof_sensor_timeout),
+        tofSensorCallback));
+#endif        
+
+    // create timer for periodically syncing the local time with the main CPU
+    const unsigned int sync_time_timeout = 5000;
+    RCCHECK(rclc_timer_init_default(
+        &sync_time_timer,
+        &support,
+        RCL_MS_TO_NS(sync_time_timeout),
+        syncTimeCallback));
+
     executor = rclc_executor_get_zero_initialized_executor();
-    // 9 handles = 7 subscriptions + 3 timers  (including ifdef'ed subs)
-    RCCHECK(rclc_executor_init(&executor, &support.context, 10, &allocator));
+
+    // 12 handles = 7 subscriptions + 5 timers  (including ifdef'ed subs)
+    // For timers, be sure micro_ros.meta defines enough of these:
+    //  RMW_UXRCE_MAX_WAIT_SETS, RMW_UXRCE_MAX_GUARD_CONDITION.
+    RCCHECK(rclc_executor_init(&executor, &support.context, 12, &allocator));
 
 #if defined(DRIVER_CONTROL)
     RCCHECK(rclc_executor_add_subscription(
@@ -665,12 +786,19 @@ void createEntities()
         &pidKiCallback,
         ON_NEW_DATA));
 #endif
+
     RCCHECK(rclc_executor_add_timer(&executor, &control_timer));
     RCCHECK(rclc_executor_add_timer(&executor, &battery_timer));
     RCCHECK(rclc_executor_add_timer(&executor, &dist_sensor_timer));
 
+#ifdef USE_TOF_SENSOR    
+    RCCHECK(rclc_executor_add_timer(&executor, &tof_sensor_timer));
+#endif    
+    RCCHECK(rclc_executor_add_timer(&executor, &sync_time_timer));
+
     // synchronize time with the agent
-    syncTime();
+    TimeUtil::sync_time();
+
     digitalWrite(LED_PIN, HIGH);
     micro_ros_init_successful = true;
 }
@@ -690,6 +818,11 @@ void destroyEntities()
     motor2_diags.destroy(node);
     steering_diags.destroy(node);
 #endif
+
+#ifdef USE_TOF_SENSOR
+    tof_sensor0.destroy(node);
+    tof_sensor1.destroy(node);
+#endif    
 
     rcl_publisher_fini(&odom_publisher, &node);
     rcl_publisher_fini(&imu_publisher, &node);
@@ -712,6 +845,11 @@ void destroyEntities()
     rcl_timer_fini(&control_timer);
     rcl_timer_fini(&battery_timer);
     rcl_timer_fini(&dist_sensor_timer);
+
+#ifdef USE_TOF_SENSOR    
+    rcl_timer_fini(&tof_sensor_timer);
+#endif    
+    rcl_timer_fini(&sync_time_timer);
 
     rclc_executor_fini(&executor);
     rclc_support_fini(&support);
@@ -928,12 +1066,12 @@ void publishData()
 
     odom_msg.header.stamp.sec = time_stamp.tv_sec;
     odom_msg.header.stamp.nanosec = time_stamp.tv_nsec;
+    RCSOFTCHECK(rcl_publish(&odom_publisher, &odom_msg, NULL));
 
     imu_msg.header.stamp.sec = time_stamp.tv_sec;
     imu_msg.header.stamp.nanosec = time_stamp.tv_nsec;
-
     RCSOFTCHECK(rcl_publish(&imu_publisher, &imu_msg, NULL));
-    RCSOFTCHECK(rcl_publish(&odom_publisher, &odom_msg, NULL));
+#endif    
 
 #if defined(PUBLISH_MOTOR_DIAGS)
     motor1_diags.publish(time_stamp, req_rpm.motor1, current_rpm1, motor1_controller.getCurrent(), motor1_pid);
@@ -942,25 +1080,13 @@ void publishData()
 #endif
 }
 
-void syncTime()
-{
-    // get the current time from the agent
-    unsigned long now = millis();
-    RCCHECK(rmw_uros_sync_session(10));
-    unsigned long long ros_time_ms = rmw_uros_epoch_millis();
-    // now we can find the difference between ROS time and uC time
-    time_offset = ros_time_ms - now;
-}
-
 struct timespec getTime()
 {
     struct timespec tp = {0};
-    // add time difference between uC time and ROS time to
-    // synchronize time with ROS
-    unsigned long long now = millis() + time_offset;
+    unsigned long long now = rmw_uros_epoch_millis();
     tp.tv_sec = now / 1000;
     tp.tv_nsec = (now % 1000) * 1000000;
-    return tp;
+    return tp;    
 }
 
 void rclErrorLoop(int n_times)
@@ -976,9 +1102,9 @@ void flashLED(int n_times)
     for (int i = 0; i < n_times; i++)
     {
         digitalWrite(LED_PIN, HIGH);
-        delay(150);
+        delay(350);
         digitalWrite(LED_PIN, LOW);
-        delay(150);
+        delay(350);
     }
     delay(1000);
 }

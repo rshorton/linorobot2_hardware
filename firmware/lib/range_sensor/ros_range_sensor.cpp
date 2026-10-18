@@ -10,20 +10,19 @@
 #include <sensor_msgs/msg/joint_state.h>
 
 #include "ros_range_sensor.h"
+#include "logger.h"
+#include "time_util.h"
 
-// fix - move definition to common file
-extern struct timespec getTime();
+#undef DEBUG_LOG
 
 RosRangeSensor::RosRangeSensor(HCSR04 &sensor, const String &frame_name, const String &topic_name):
     sensor_(sensor),
     frame_name_(frame_name),
-    topic_name_(topic_name),
-    inited_(false),
-    measuring_(false)
+    topic_name_(topic_name)
 {
 }
 
-void RosRangeSensor::create(rcl_node_t &node)
+void RosRangeSensor::init(rcl_node_t &node)
 {
     if (!inited_)
     {
@@ -39,8 +38,8 @@ void RosRangeSensor::create(rcl_node_t &node)
 
         range_msg_.radiation_type = sensor_msgs__msg__Range__ULTRASOUND;
         range_msg_.field_of_view = sensor_.get_field_of_view();
-        range_msg_.min_range = 0.02;
-        range_msg_.max_range = 0.7; 
+        range_msg_.min_range = 0.04;
+        range_msg_.max_range = 4.0; 
 
         inited_ = true;
     }
@@ -62,7 +61,7 @@ void RosRangeSensor::publish_range(float range)
         return;
     }
 
-    struct timespec time_stamp = getTime();
+    struct timespec time_stamp = TimeUtil::get_time();
     range_msg_.header.stamp.sec = time_stamp.tv_sec;
     range_msg_.header.stamp.nanosec = time_stamp.tv_nsec;
 
@@ -74,8 +73,15 @@ bool RosRangeSensor::update()
 {
     if (!inited_)
     {
+#if defined(DEBUG_LOG)
+        Logger::log_message(Logger::LogLevel::Info, "RosRangeSensor::update not inited");
+#endif    
         return false;
     }
+
+#if defined(DEBUG_LOG)
+    Logger::log_message(Logger::LogLevel::Info, "RosRangeSensor::update state (enter): %d", measuring_);
+#endif    
 
     if (measuring_)
     {
@@ -85,11 +91,19 @@ bool RosRangeSensor::update()
             publish_range(dist);
         }
         measuring_ = !sensor_.finished();
-    }
-    else
-    {
-        sensor_.start();
-        measuring_ = true;
+#if defined(DEBUG_LOG)
+        Logger::log_message(Logger::LogLevel::Info, "RosRangeSensor::update state (measuring): %d", measuring_, dist);
+#endif        
     }
     return measuring_;
+}
+
+void RosRangeSensor::start()
+{
+    sensor_.start();
+    measuring_ = true;
+
+#if defined(DEBUG_LOG)
+    Logger::log_message(Logger::LogLevel::Info, "RosRangeSensor::start");
+#endif    
 }

@@ -3,9 +3,8 @@
 
 #include <Arduino.h>
 
-inline int sgn(int x)
-{
-    return (x > 0) - (x < 0);
+template <typename T> int sgn(T val) {
+    return (T(0) < val) - (val < T(0));
 }
 
 #endif // UTIL_H
