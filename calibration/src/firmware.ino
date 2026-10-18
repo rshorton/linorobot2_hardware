@@ -231,7 +231,7 @@ void sampleMotors(bool show_summary)
                 Serial.print(".");
             }
 
-            motors[i]->spin(30);
+            motors[i]->spin(80);
 
             Serial.print(encoders[0]->read());
             Serial.print(" ");
