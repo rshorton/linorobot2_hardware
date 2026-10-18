@@ -201,7 +201,7 @@ ROBOT ORIENTATION
 #define ROBOCLAW_ADDRESS            128
 #define ROBOCLAW_BAUD_RATE          9600
 #define ROBOCLAW_SERIAL             Serial7
-#define ROBOCLAW_INVERT_SERIAL_IO   true      // Invert the serial I/O since the optoisolator interface circuit inverts the signals
+#define ROBOCLAW_INVERT_SERIAL_IO   false
 #define ROBOCLAW_SERIAL_TIMEOUT_US  10000
 #define ROBOCLAW_MAX_SPEED_LIMIT    80        // Actual max is +/- 127. Limit to a lower value
 #define ROBOCLAW_MIN_SPEED_LIMIT    (-ROBOCLAW_MAX_SPEED_LIMIT)
